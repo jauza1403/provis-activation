@@ -1,8 +1,16 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { activationRequests } from "@/db/schema";
 
+import { candidateSlots, SLOT_CAPACITY } from "@/lib/scheduling";
+function capacity(date: string, slot: string, excludeId = "") {
+  return sql`(SELECT count(*) FROM activation_requests WHERE activation_date = ${date} AND time_slot = ${slot} AND id != ${excludeId}) < ${SLOT_CAPACITY}`;
+}
+function validSchedule(date: string, slot: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date && candidateSlots(slot).length > 0;
+}
+const fullResponse = () => NextResponse.json({ error: "Slot yang dipilih dan slot berikutnya penuh. Pilih slot sebelumnya atau tanggal lain." }, { status: 409 });
 const required = [
   "activationDate", "timeSlot", "area", "vendorName",
   "accessMedia", "serviceType", "customerName", "siteId", "subsId", "oppNumber", "woNumber",
@@ -95,6 +103,7 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    if (!validSchedule(body.activationDate, body.timeSlot)) return NextResponse.json({ error: "Tanggal atau slot tidak valid." }, { status: 400 });
     const isUrgent = body.requestType === "Urgent";
     const row = {
       id: crypto.randomUUID(),
@@ -142,8 +151,17 @@ export async function POST(request: Request) {
       whatsappMessageId: "",
       notes: String(body.notes ?? "").trim(),
     };
-    await getDb().insert(activationRequests).values(row);
-    return NextResponse.json({ request: row }, { status: 201 });
+    const columns = getTableColumns(activationRequests);
+    for (const slot of candidateSlots(row.timeSlot)) {
+      row.timeSlot = slot;
+      const entries = Object.entries(row) as [keyof typeof row, string | number | boolean][];
+      const names = sql.join(entries.map(([key]) => sql.identifier(columns[key].name)), sql`, `);
+      const values = sql.join(entries.map(([, value]) => sql`${typeof value === "boolean" ? Number(value) : value}`), sql`, `);
+      // One statement makes capacity enforcement atomic across concurrent submissions.
+      const inserted = await getDb().all(sql`INSERT INTO activation_requests (${names}) SELECT ${values} WHERE ${capacity(row.activationDate, slot)} RETURNING id`);
+      if (inserted.length) return NextResponse.json({ request: row }, { status: 201 });
+    }
+    return fullResponse();
   } catch (error) {
     console.error("request-create-failed", error);
     return NextResponse.json(
@@ -215,15 +233,20 @@ export async function PATCH(request: Request) {
     if (!Object.keys(update).length) {
       return NextResponse.json({ error: "Tidak ada perubahan untuk disimpan." }, { status: 400 });
     }
-    await getDb()
-      .update(activationRequests)
-      .set(update)
-      .where(eq(activationRequests.id, body.id));
-    const [updated] = await getDb()
-      .select()
-      .from(activationRequests)
-      .where(eq(activationRequests.id, body.id));
-    return NextResponse.json({ request: updated });
+    const db = getDb();
+    const [current] = await db.select().from(activationRequests).where(eq(activationRequests.id, body.id));
+    if (!current) return NextResponse.json({ error: "Request tidak ditemukan." }, { status: 404 });
+    const date = String(update.activationDate ?? current.activationDate);
+    const requestedSlot = String(update.timeSlot ?? current.timeSlot);
+    if (!validSchedule(date, requestedSlot)) return NextResponse.json({ error: "Tanggal atau slot tidak valid." }, { status: 400 });
+    const changed = date !== current.activationDate || requestedSlot !== current.timeSlot;
+    for (const slot of changed ? candidateSlots(requestedSlot) : [current.timeSlot]) {
+      const [updated] = await db.update(activationRequests)
+        .set(changed ? { ...update, timeSlot: slot } : update)
+        .where(and(eq(activationRequests.id, body.id), changed ? capacity(date, slot, body.id) : undefined)).returning();
+      if (updated) return NextResponse.json({ request: updated });
+    }
+    return fullResponse();
   } catch (error) {
     console.error("request-update-failed", error);
     return NextResponse.json(

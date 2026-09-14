@@ -1,5 +1,8 @@
 "use client";
 
+import { slots, SLOT_CAPACITY, candidateSlots } from "@/lib/scheduling";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
@@ -112,12 +115,7 @@ const pics = [
   "Devri Damara",
   "Andika Sukmawan",
 ];
-const slots = [
-  "08.00–10.00 WIB",
-  "10.00–12.00 WIB",
-  "13.00–15.00 WIB",
-  "15.00–17.00 WIB",
-];
+
 const serviceTypes = [
   "Internet",
   "Leased-Line",
@@ -394,7 +392,9 @@ export default function Home() {
     setEditingId(null);
     setView("dashboard");
     setMessage(
-      wasEditing
+      data.request.timeSlot !== payload.timeSlot
+        ? `Request tersimpan di ${data.request.timeSlot} karena slot sebelumnya penuh.`
+        : wasEditing
         ? "Perubahan request berhasil disimpan."
         : urgent
           ? `Request urgent ${data.request.approvalCode} tersimpan dan menunggu approval.`
@@ -1043,6 +1043,7 @@ export default function Home() {
             </>
           ) : view === "form" || view === "urgentForm" ? (
             <RequestForm
+              requests={requests.filter((item) => item.id !== editingId)}
               form={form}
               setForm={setForm}
               busy={busy}
@@ -1219,7 +1220,7 @@ export default function Home() {
             <DialogTitle>Ganti Tanggal Aktivasi</DialogTitle>
             <DialogDescription>
               Tentukan tanggal aktivasi baru untuk {rescheduleTarget?.customerName || rescheduleTarget?.siteId}.
-              Timeslot tetap {rescheduleTarget?.timeSlot}.
+              Timeslot {rescheduleTarget?.timeSlot}; jika penuh, otomatis pindah ke slot berikutnya yang tersedia.
             </DialogDescription>
           </DialogHeader>
           <label className="reschedule-field">
@@ -1664,6 +1665,7 @@ function Metric({
 }
 
 function RequestForm({
+  requests,
   form,
   setForm,
   busy,
@@ -1672,6 +1674,7 @@ function RequestForm({
   urgent,
   onCancel,
 }: {
+  requests: ActivationRequest[];
   form: typeof emptyForm;
   setForm: React.Dispatch<React.SetStateAction<typeof emptyForm>>;
   busy: boolean;
@@ -1680,6 +1683,13 @@ function RequestForm({
   urgent: boolean;
   onCancel: () => void;
 }) {
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const counts = Object.fromEntries(slots.map((slot) => [slot, requests.filter((item) => item.activationDate === form.activationDate && item.timeSlot === slot).length]));
+  const effectiveSlot = form.activationDate ? candidateSlots(form.timeSlot).find((slot) => counts[slot] < SLOT_CAPACITY) ?? "" : form.timeSlot;
+  const scheduleFull = Boolean(form.activationDate) && !effectiveSlot;
+  useEffect(() => {
+    if (effectiveSlot && effectiveSlot !== form.timeSlot) setForm((current) => ({ ...current, timeSlot: effectiveSlot }));
+  }, [effectiveSlot, form.timeSlot, setForm]);
   const input = (key: keyof typeof emptyForm) => ({
     value: form[key],
     onChange: (
@@ -1958,31 +1968,48 @@ function RequestForm({
         <FormSection number="04" title="Jadwal Aktivasi" icon={<CalendarDays size={18} />}>
           <div className="form-grid">
             <Field label="Tanggal Aktivasi">
-              <input required type="date" {...input("activationDate")} />
-              {form.activationDate && <span className="date-preview">{formatActivationDate(form.activationDate)}</span>}
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <button type="button" className="activation-date-trigger"><span>{form.activationDate ? formatActivationDate(form.activationDate) : "Pilih tanggal aktivasi"}</span><CalendarDays size={19} /></button>
+                </PopoverTrigger>
+                <PopoverContent className="activation-calendar-popover w-auto p-0" align="start">
+                  <Calendar className="activation-calendar" mode="single" selected={form.activationDate ? new Date(form.activationDate + "T00:00:00") : undefined}
+                    onSelect={(date) => {
+                      if (!date) return;
+                      const value = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+                      const next = slots.find((slot) => requests.filter((item) => item.activationDate === value && item.timeSlot === slot).length < SLOT_CAPACITY);
+                      setForm({ ...form, activationDate: value, timeSlot: next ?? slots[0] });
+                      setCalendarOpen(false);
+                    }} />
+                </PopoverContent>
+              </Popover>
+
             </Field>
             <Field label="Timeslot Aktivasi" wide>
               <div className="slot-grid">
                 {slots.map((slot, index) => (
                   <label
                     key={slot}
-                    className={form.timeSlot === slot ? "selected" : ""}
+                    className={[effectiveSlot === slot ? "selected" : "", counts[slot] >= SLOT_CAPACITY ? "slot-full" : ""].join(" ")}
                   >
                     <input
                       type="radio"
                       name="slot"
                       value={slot}
-                      checked={form.timeSlot === slot}
+                      disabled={!form.activationDate || counts[slot] >= SLOT_CAPACITY}
+                      checked={effectiveSlot === slot}
                       onChange={(event) =>
                         setForm({ ...form, timeSlot: event.target.value })
                       }
                     />
                     <b>Slot {index + 1}</b>
                     <span>{slot}</span>
+                    <span>{form.activationDate ? counts[slot] + "/10 request" + (counts[slot] >= SLOT_CAPACITY ? " · Penuh" : "") : "Pilih tanggal dahulu"}</span>
                   </label>
                 ))}
               </div>
             </Field>
+            <p className="wide date-preview" role="status">{scheduleFull ? "Slot penuh. Pilih slot sebelumnya yang tersedia atau tanggal lain." : "Maksimal 10 request per slot. Slot penuh otomatis dialihkan ke slot berikutnya."}</p>
             <Field label="Catatan Tambahan" wide>
               <textarea
                 rows={3}
@@ -1999,7 +2026,7 @@ function RequestForm({
             </button>
           )}
           <button
-            disabled={busy}
+            disabled={busy || !form.activationDate || scheduleFull}
             className="primary-button min-w-48"
             type="submit"
           >
