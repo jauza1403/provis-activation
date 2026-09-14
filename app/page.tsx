@@ -376,7 +376,12 @@ export default function Home() {
   const [statusFilter, setStatusFilter] = useState("Semua status");
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessageText] = useState("");
+  const [messageKind, setMessageKind] = useState<"success" | "error">("error");
+  function setMessage(text: string, kind: "success" | "error" = "error") {
+    setMessageText(text);
+    setMessageKind(kind);
+  }
   const [selectedRequest, setSelectedRequest] =
     useState<ActivationRequest | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -481,6 +486,7 @@ export default function Home() {
         : urgent
           ? `Request urgent ${data.request.approvalCode} tersimpan dan menunggu approval.`
           : "Request aktivasi berhasil dikirim.",
+      "success",
     );
     return data.request as ActivationRequest;
   }
@@ -644,7 +650,7 @@ export default function Home() {
       );
       setSelectedRequest(null);
       setPendingTarget(null);
-      setMessage("Request dipindahkan ke Daftar Pending.");
+      setMessage("Request dipindahkan ke Daftar Pending.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Status Pending gagal disimpan.");
     } finally {
@@ -675,7 +681,7 @@ export default function Home() {
       );
       setSelectedRequest((current) => current?.id === rescheduleTarget.id ? data.request : current);
       setRescheduleTarget(null);
-      setMessage("Jadwal aktivasi berhasil diubah.");
+      setMessage("Jadwal aktivasi berhasil diubah.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Jadwal gagal diubah.");
     } finally {
@@ -704,7 +710,7 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error);
       setRequests((current) => current.map((request) => request.id === item.id ? data.request : request));
       setSelectedRequest(null);
-      setMessage(`Request urgent ${item.approvalCode} berhasil disetujui.`);
+      setMessage(`Request urgent ${item.approvalCode} berhasil disetujui.`, "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Approval urgent gagal disimpan.");
     } finally {
@@ -789,7 +795,7 @@ export default function Home() {
       setRequests((current) => current.filter((item) => item.id !== deleteTarget.id));
       setSelectedRequest((current) => current?.id === deleteTarget.id ? null : current);
       setDeleteTarget(null);
-      setMessage("Request aktivasi berhasil dihapus.");
+      setMessage("Request aktivasi berhasil dihapus.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request gagal dihapus.");
     } finally {
@@ -817,6 +823,7 @@ export default function Home() {
         completedDateFilter === "all"
           ? "Semua data completed berhasil dihapus."
           : `Semua data completed tanggal ${formatActivationDate(completedDateFilter)} berhasil dihapus.`,
+        "success",
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Data completed gagal dihapus.");
@@ -904,7 +911,7 @@ export default function Home() {
                   type="button"
                   onClick={handleLogout}
                   title="Keluar / Logout"
-                  className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/30 text-slate-400 border border-slate-800 text-xs font-medium transition cursor-pointer"
+                  className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/30 text-slate-400 border border-slate-800 text-xs font-medium transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150 active:scale-[.96] cursor-pointer"
                 >
                   <LogOut size={15} />
                   <span className="hidden md:inline">Keluar</span>
@@ -978,9 +985,9 @@ export default function Home() {
 
         <section>
           {message && (
-            <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
-              {message}
-              <button onClick={() => setMessage("")}>
+            <div role={messageKind === "error" ? "alert" : "status"} className={`portal-message portal-message-${messageKind}`}>
+              <span><strong>{messageKind === "error" ? "Perhatian: " : "Berhasil: "}</strong>{message}</span>
+              <button type="button" aria-label="Tutup pesan" onClick={() => setMessage("")}>
                 <X size={17} />
               </button>
             </div>
@@ -1041,12 +1048,14 @@ export default function Home() {
                   <label className="search-box">
                     <Search size={17} />
                     <input
+                      aria-label="Cari request berdasarkan Site ID, Subs ID, WO atau vendor"
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="Cari Site ID, Subs ID, WO, vendor…"
                     />
                   </label>
                   <select
+                    aria-label="Filter status request"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                   >
@@ -1114,6 +1123,7 @@ export default function Home() {
                               <span className="font-medium text-slate-300">{item.provisioningPic}</span>
                             ) : (
                               <select
+                                aria-label={`PIC Provisioning untuk ${item.customerName || item.siteId}`}
                                 value={item.provisioningPic}
                                 onClick={(event) => event.stopPropagation()}
                                 onChange={(e) =>
@@ -1140,6 +1150,7 @@ export default function Home() {
                               ) : (
                                 <select
                                   className={`status ${item.status.toLowerCase().replace(" ", "-")}`}
+                                  aria-label={`Status request ${item.customerName || item.siteId}`}
                                   value={item.status}
                                   onClick={(event) => event.stopPropagation()}
                                   onChange={(event) => changeStatus(item, event.target.value)}
@@ -1547,7 +1558,7 @@ function CompletedList({
             <tbody>
               {requests.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
-                  <td data-label="Customer"><b>{item.customerName || item.siteId}</b><span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span></td>
+                  <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span></td>
                   <td data-label="Waktu Selesai"><b className="capitalize">{formatActivationDate(getCompletedDate(item))}</b><span>{formatCompletedTime(item.completedAt)}</span></td>
                   <td data-label="Area & Vendor"><b>{item.area}</b><span>{item.vendorName}</span></td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
@@ -1613,7 +1624,7 @@ function PendingList({
               {requests.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
                   <td data-label="Customer">
-                    <b>{item.customerName || item.siteId}</b>
+                    <button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button>
                     <span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span>
                   </td>
                   <td data-label="Jadwal Sebelumnya">
@@ -1684,7 +1695,7 @@ function UrgentApprovalList({
               {requests.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
                   <td data-label="Kode Approval"><b className="approval-code">{item.approvalCode}</b></td>
-                  <td data-label="Customer"><b>{item.customerName}</b><span>{item.siteId} · {item.subsId}</span></td>
+                  <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId}</span></td>
                   <td data-label="Jadwal Diajukan"><b className="capitalize">{formatActivationDate(item.activationDate)}</b><span>{item.timeSlot}</span></td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
                   <td data-label="Tindakan">
@@ -1932,7 +1943,7 @@ function RequestForm({
           <Clock3 size={18} />
           <div>
             <b>{editing ? "Mode edit request" : urgent ? "Memerlukan Approval" : "Pengajuan request dibuka"}</b>
-            <span>{editing ? "Perbarui data lalu simpan perubahan." : urgent ? "Request akan masuk ke menu Urgent Approval untuk disetujui atau dijadwalkan ulang." : "Request aktivasi dapat dikirim kapan saja."}</span>
+            <span>{editing ? "Perbarui data lalu simpan perubahan." : urgent ? "Request akan masuk ke menu Urgent Approval untuk disetujui atau dijadwalkan ulang." : "Request reguler dibuka sampai pukul 17:00 WIB. Setelah itu, gunakan Request Urgent."}</span>
           </div>
         </div>
       </div>

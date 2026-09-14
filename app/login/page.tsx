@@ -131,7 +131,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label htmlFor="login-username" className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Username
               </label>
               <div className="relative">
@@ -139,19 +139,21 @@ export default function LoginPage() {
                   <User size={16} />
                 </span>
                 <input
+                  id="login-username"
+                  name="username"
                   type="text"
                   autoComplete="username"
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Masukkan username"
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-950/60 border border-slate-700/60 rounded-xl text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 transition"
+                  className="login-field-input w-full pl-9 pr-3 py-2.5 bg-slate-950/60 border border-slate-700/60 rounded-xl text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 transition-[color,background-color,border-color,box-shadow] duration-150"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label htmlFor="login-password" className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Password
               </label>
               <div className="relative">
@@ -159,13 +161,15 @@ export default function LoginPage() {
                   <Lock size={16} />
                 </span>
                 <input
+                  id="login-password"
+                  name="password"
                   type="password"
                   autoComplete="current-password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Masukkan password"
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-950/60 border border-slate-700/60 rounded-xl text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 transition"
+                  className="login-field-input w-full pl-9 pr-3 py-2.5 bg-slate-950/60 border border-slate-700/60 rounded-xl text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 transition-[color,background-color,border-color,box-shadow] duration-150"
                 />
               </div>
             </div>
@@ -173,7 +177,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-2.5 px-4 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-medium text-sm rounded-xl shadow-lg shadow-sky-600/20 flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              className="w-full mt-2 py-2.5 px-4 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-medium text-sm rounded-xl shadow-lg shadow-sky-600/20 flex items-center justify-center gap-2 transition-[color,background-color,border-color,box-shadow,opacity,transform,filter] duration-150 active:scale-[.96] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {loading ? (
                 <span>Memproses…</span>
@@ -201,11 +205,11 @@ export default function LoginPage() {
                   key={acc.username}
                   type="button"
                   onClick={() => fillCredentials(acc.username, acc.password)}
-                  className="w-full text-left p-2.5 rounded-xl border border-slate-800 hover:border-slate-700 bg-slate-950/40 hover:bg-slate-800/40 transition group cursor-pointer flex items-center justify-between"
+                  className="w-full text-left p-2.5 rounded-xl border border-slate-800 hover:border-slate-700 bg-slate-950/40 hover:bg-slate-800/40 transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150 active:scale-[.96] group cursor-pointer flex items-center justify-between"
                 >
                   <div className="min-w-0 pr-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-slate-200 group-hover:text-sky-300 transition">
+                      <span className="text-xs font-semibold text-slate-200 group-hover:text-sky-300 transition-colors duration-150">
                         {acc.username}
                       </span>
                       <span
