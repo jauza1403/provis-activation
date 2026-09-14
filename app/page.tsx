@@ -17,6 +17,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Lock,
+  LogOut,
   Mail,
   Pencil,
   Plus,
@@ -103,6 +104,14 @@ type ActivationRequest = {
   approvedAt: string;
   whatsappMessageId: string;
   notes: string;
+};
+
+type CurrentUser = {
+  id: string;
+  username: string;
+  name: string;
+  role: "superuser" | "project_user" | "vendor_user";
+  vendorName: string;
 };
 
 const pics = [
@@ -359,6 +368,8 @@ declare global {
 const CUTOFF_HOUR = 17;
 
 export default function Home() {
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<"dashboard" | "form" | "urgentForm" | "urgent" | "pending" | "completed">("dashboard");
   const [requests, setRequests] = useState<ActivationRequest[]>([]);
   const [query, setQuery] = useState("");
@@ -387,26 +398,63 @@ export default function Home() {
     return () => window.clearInterval(id);
   }, []);
 
-  // Super user PIN dialog state
-  const [pinTarget, setPinTarget] = useState<ActivationRequest | null>(null);
-  const [pinAction, setPinAction] = useState<"approve" | "reschedule">("approve");
-  const [pinValue, setPinValue] = useState("");
-  const [pinError, setPinError] = useState("");
-
   async function load() {
     const response = await fetch("/api/requests", { cache: "no-store" });
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
     const data = (await response.json()) as any;
     if (!response.ok) throw new Error(data.error);
     setRequests(data.requests ?? []);
   }
 
   useEffect(() => {
-    load().catch(() => setMessage("Data monitoring belum dapat dimuat."));
+    async function initAuth() {
+      try {
+        const res = await fetch("/api/auth");
+        if (!res.ok) {
+          window.location.href = "/login";
+          return;
+        }
+        const data = (await res.json()) as any;
+        if (!data.user) {
+          window.location.href = "/login";
+          return;
+        }
+        setCurrentUser(data.user);
+        setAuthLoading(false);
+        await load();
+      } catch {
+        window.location.href = "/login";
+      }
+    }
+    initAuth();
+
     const timer = window.setInterval(() => {
       load().catch(() => undefined);
     }, 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "logout" }),
+      });
+    } finally {
+      window.location.href = "/login";
+    }
+  }
+
+  // Enforce vendor view boundaries
+  useEffect(() => {
+    if (currentUser?.role === "vendor_user" && ["urgent", "pending", "completed"].includes(view)) {
+      setView("dashboard");
+    }
+  }, [currentUser, view]);
 
   async function submit(payload = form, urgent = false) {
     const response = await fetch("/api/requests", {
@@ -604,7 +652,7 @@ export default function Home() {
     }
   }
 
-  async function saveReschedule(pin?: string) {
+  async function saveReschedule() {
     if (!rescheduleTarget || !rescheduleDate) return;
     const needsApproval = rescheduleTarget.approvalStatus === "Waiting Approval";
     setBusy(true);
@@ -617,7 +665,7 @@ export default function Home() {
           status: "Reschedule",
           activationDate: rescheduleDate,
           pendingReason: "",
-          ...(needsApproval ? { approvalStatus: "Approved", pin } : {}),
+          ...(needsApproval ? { approvalStatus: "Approved" } : {}),
         }),
       });
       const data = (await response.json()) as any;
@@ -627,33 +675,19 @@ export default function Home() {
       );
       setSelectedRequest((current) => current?.id === rescheduleTarget.id ? data.request : current);
       setRescheduleTarget(null);
-      setPinTarget(null);
       setMessage("Jadwal aktivasi berhasil diubah.");
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Jadwal gagal diubah.";
-      if (msg.includes("PIN")) { setPinError(msg); } else { setPinTarget(null); setMessage(msg); }
+      setMessage(error instanceof Error ? error.message : "Jadwal gagal diubah.");
     } finally {
       setBusy(false);
     }
   }
 
-  // Opens PIN dialog before approving
-  function requestApproval(item: ActivationRequest) {
-    setPinTarget(item);
-    setPinAction("approve");
-    setPinValue("");
-    setPinError("");
-  }
-
-  // Opens PIN dialog before rescheduling an urgent request
-  function requestRescheduleAuth(item: ActivationRequest) {
-    setPinTarget(item);
-    setPinAction("reschedule");
-    setPinValue("");
-    setPinError("");
-  }
-
-  async function approveUrgent(item: ActivationRequest, pin: string) {
+  async function approveUrgent(item: ActivationRequest) {
+    if (currentUser?.role !== "superuser") {
+      setMessage("Hanya Superuser yang dapat menyetujui request urgent.");
+      return;
+    }
     setBusy(true);
     try {
       const response = await fetch("/api/requests", {
@@ -664,29 +698,17 @@ export default function Home() {
           approvalStatus: "Approved",
           activationDate: getWibClock().date,
           status: "On Progress",
-          pin,
         }),
       });
       const data = (await response.json()) as any;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) => current.map((request) => request.id === item.id ? data.request : request));
       setSelectedRequest(null);
-      setPinTarget(null);
-      setMessage(`${item.approvalCode} disetujui dan masuk jadwal aktivasi hari ini.`);
+      setMessage(`Request urgent ${item.approvalCode} berhasil disetujui.`);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Approval urgent gagal disimpan.";
-      if (msg.includes("PIN")) { setPinError(msg); } else { setPinTarget(null); setMessage(msg); }
+      setMessage(error instanceof Error ? error.message : "Approval urgent gagal disimpan.");
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function confirmPin() {
-    if (!pinTarget || !pinValue.trim()) return;
-    if (pinAction === "approve") {
-      await approveUrgent(pinTarget, pinValue.trim());
-    } else {
-      await saveReschedule(pinValue.trim());
     }
   }
 
@@ -709,6 +731,10 @@ export default function Home() {
   }
 
   function editRequest(item: ActivationRequest) {
+    if (currentUser?.role === "vendor_user") {
+      setMessage("Vendor tidak memiliki izin untuk mengedit request.");
+      return;
+    }
     setEditingId(item.id);
     setForm({
       deadline: item.deadline,
@@ -817,6 +843,15 @@ export default function Home() {
   const pendingRequests = requests.filter((r) => r.status === "Pending");
   const urgentRequests = requests.filter((r) => r.approvalStatus === "Waiting Approval");
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400">
+        <div className="w-8 h-8 border-2 border-sky-400 border-t-transparent rounded-full animate-spin mb-3" />
+        <span className="text-xs font-medium tracking-wide">Memverifikasi sesi…</span>
+      </div>
+    );
+  }
+
   return (
     <main className="portal-shell min-h-screen text-slate-100">
       <header className="portal-header px-5 py-4 lg:px-10">
@@ -836,9 +871,46 @@ export default function Home() {
               <span className="text-xs text-slate-400">Activation Portal</span>
             </div>
           </div>
-          <div className="live-pill hidden sm:flex">
-            <span className="live-dot" />
-            Sistem online
+          <div className="flex items-center gap-3">
+            <div className="live-pill hidden sm:flex">
+              <span className="live-dot" />
+              Sistem online
+            </div>
+            {currentUser && (
+              <div className="user-profile-badge flex items-center gap-3 pl-3 border-l border-slate-800">
+                <div className="text-right hidden sm:block">
+                  <div className="text-xs font-semibold text-slate-200 leading-tight">
+                    {currentUser.name}
+                  </div>
+                  <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                    {currentUser.role === "superuser" && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                        SUPERUSER
+                      </span>
+                    )}
+                    {currentUser.role === "project_user" && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                        PROJECT USER
+                      </span>
+                    )}
+                    {currentUser.role === "vendor_user" && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        VENDOR USER
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  title="Keluar / Logout"
+                  className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/30 text-slate-400 border border-slate-800 text-xs font-medium transition cursor-pointer"
+                >
+                  <LogOut size={15} />
+                  <span className="hidden md:inline">Keluar</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -851,7 +923,7 @@ export default function Home() {
             className={`nav-button ${view === "dashboard" ? "active" : ""}`}
           >
             <LayoutDashboard size={18} />
-            Dashboard
+            {currentUser?.role === "vendor_user" ? "Dashboard Saya" : "Dashboard"}
           </button>
           <button
             onClick={openNewRequest}
@@ -869,30 +941,34 @@ export default function Home() {
             <Flame size={18} />
             Request Urgent
           </button>
-          <button
-            onClick={() => { setView("urgent"); setEditingId(null); setSelectedRequest(null); }}
-            className={`nav-button ${view === "urgent" ? "active" : ""}`}
-          >
-            <MessageCircle size={18} />
-            Approval Urgent
-            {urgentRequests.length > 0 && <span className="nav-count urgent-count">{urgentRequests.length}</span>}
-          </button>
-          <button
-            onClick={() => { setView("pending"); setEditingId(null); setSelectedRequest(null); }}
-            className={`nav-button ${view === "pending" ? "active" : ""}`}
-          >
-            <CirclePause size={18} />
-            Pending
-            {pendingRequests.length > 0 && <span className="nav-count">{pendingRequests.length}</span>}
-          </button>
-          <button
-            onClick={() => { setView("completed"); setEditingId(null); setSelectedRequest(null); }}
-            className={`nav-button ${view === "completed" ? "active" : ""}`}
-          >
-            <CheckCircle2 size={18} />
-            Selesai
-            {completedRequests.length > 0 && <span className="nav-count completed-count">{completedRequests.length}</span>}
-          </button>
+          {currentUser?.role !== "vendor_user" && (
+            <>
+              <button
+                onClick={() => { setView("urgent"); setEditingId(null); setSelectedRequest(null); }}
+                className={`nav-button ${view === "urgent" ? "active" : ""}`}
+              >
+                <MessageCircle size={18} />
+                Approval Urgent
+                {urgentRequests.length > 0 && <span className="nav-count urgent-count">{urgentRequests.length}</span>}
+              </button>
+              <button
+                onClick={() => { setView("pending"); setEditingId(null); setSelectedRequest(null); }}
+                className={`nav-button ${view === "pending" ? "active" : ""}`}
+              >
+                <CirclePause size={18} />
+                Pending
+                {pendingRequests.length > 0 && <span className="nav-count">{pendingRequests.length}</span>}
+              </button>
+              <button
+                onClick={() => { setView("completed"); setEditingId(null); setSelectedRequest(null); }}
+                className={`nav-button ${view === "completed" ? "active" : ""}`}
+              >
+                <CheckCircle2 size={18} />
+                Selesai
+                {completedRequests.length > 0 && <span className="nav-count completed-count">{completedRequests.length}</span>}
+              </button>
+            </>
+          )}
           <div className={`deadline-note mt-auto hidden lg:block ${pastCutoff ? "cutoff-active" : ""}`}>
             <span className="deadline-icon">{pastCutoff ? <ShieldAlert size={18} /> : <Clock3 size={18} />}</span>
             <b>{pastCutoff ? "Pengajuan reguler tutup" : "Pengajuan dibuka"}</b>
@@ -1034,35 +1110,45 @@ export default function Home() {
                             )}
                           </td>
                           <td data-label="PIC Provisioning">
-                            <select
-                              value={item.provisioningPic}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={(e) =>
-                                updateRequest(
-                                  item.id,
-                                  "provisioningPic",
-                                  e.target.value,
-                                )
-                              }
-                            >
-                              {pics.map((pic) => (
-                                <option key={pic}>{pic}</option>
-                              ))}
-                            </select>
+                            {currentUser?.role === "vendor_user" ? (
+                              <span className="font-medium text-slate-300">{item.provisioningPic}</span>
+                            ) : (
+                              <select
+                                value={item.provisioningPic}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(e) =>
+                                  updateRequest(
+                                    item.id,
+                                    "provisioningPic",
+                                    e.target.value,
+                                  )
+                                }
+                              >
+                                {pics.map((pic) => (
+                                  <option key={pic}>{pic}</option>
+                                ))}
+                              </select>
+                            )}
                           </td>
                           <td data-label="Status">
                             <div className="status-control">
                               {item.status === "On Progress" && <span className="progress-beacon" aria-label="Sedang berjalan" />}
-                              <select
-                                className={`status ${item.status.toLowerCase().replace(" ", "-")}`}
-                                value={item.status}
-                                onClick={(event) => event.stopPropagation()}
-                                onChange={(event) => changeStatus(item, event.target.value)}
-                              >
-                                {statuses.map((status) => (
-                                  <option key={status}>{status}</option>
-                                ))}
-                              </select>
+                              {currentUser?.role === "vendor_user" ? (
+                                <span className={`status ${item.status.toLowerCase().replace(" ", "-")}`}>
+                                  {item.status}
+                                </span>
+                              ) : (
+                                <select
+                                  className={`status ${item.status.toLowerCase().replace(" ", "-")}`}
+                                  value={item.status}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onChange={(event) => changeStatus(item, event.target.value)}
+                                >
+                                  {statuses.map((status) => (
+                                    <option key={status}>{status}</option>
+                                  ))}
+                                </select>
+                              )}
                             </div>
                           </td>
                           <td data-label="Aksi">
@@ -1078,24 +1164,28 @@ export default function Home() {
                                   <Mail size={15} />
                                 </button>
                               )}
-                              <button
-                                type="button"
-                                className="icon-action edit"
-                                title="Edit request"
-                                aria-label={`Edit ${item.customerName || item.siteId}`}
-                                onClick={(event) => { event.stopPropagation(); editRequest(item); }}
-                              >
-                                <Pencil size={15} />
-                              </button>
-                              <button
-                                type="button"
-                                className="icon-action delete"
-                                title="Hapus request"
-                                aria-label={`Hapus ${item.customerName || item.siteId}`}
-                                onClick={(event) => { event.stopPropagation(); setDeleteTarget(item); }}
-                              >
-                                <Trash2 size={15} />
-                              </button>
+                              {currentUser?.role !== "vendor_user" && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="icon-action edit"
+                                    title="Edit request"
+                                    aria-label={`Edit ${item.customerName || item.siteId}`}
+                                    onClick={(event) => { event.stopPropagation(); editRequest(item); }}
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-action delete"
+                                    title="Hapus request"
+                                    aria-label={`Hapus ${item.customerName || item.siteId}`}
+                                    onClick={(event) => { event.stopPropagation(); setDeleteTarget(item); }}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1164,7 +1254,14 @@ export default function Home() {
               }}
             />
           ) : view === "urgent" ? (
-            <UrgentApprovalList requests={urgentRequests} onOpen={setSelectedRequest} onApprove={requestApproval} onReschedule={openReschedule} busy={busy} />
+            <UrgentApprovalList
+              requests={urgentRequests}
+              onOpen={setSelectedRequest}
+              onApprove={approveUrgent}
+              onReschedule={openReschedule}
+              busy={busy}
+              canApprove={currentUser?.role === "superuser"}
+            />
           ) : view === "completed" ? (
             <CompletedList
               requests={completedForDate}
@@ -1188,6 +1285,7 @@ export default function Home() {
         onClose={() => setSelectedRequest(null)}
         onEdit={editRequest}
         onDelete={setDeleteTarget}
+        canEdit={currentUser?.role !== "vendor_user"}
       />
       <Dialog open={Boolean(switchEmailTarget)} onOpenChange={(open) => !open && setSwitchEmailTarget(null)}>
         <DialogContent className="email-choice-dialog">
@@ -1329,13 +1427,7 @@ export default function Home() {
             <button type="button" className="secondary-button" disabled={busy} onClick={() => setRescheduleTarget(null)}>
               Batal
             </button>
-            <button type="button" className="primary-button" disabled={busy || !rescheduleDate} onClick={() => {
-              if (rescheduleTarget?.approvalStatus === "Waiting Approval") {
-                requestRescheduleAuth(rescheduleTarget);
-              } else {
-                void saveReschedule();
-              }
-            }}>
+            <button type="button" className="primary-button" disabled={busy || !rescheduleDate} onClick={() => void saveReschedule()}>
               {busy ? "Menyimpan…" : "Simpan Jadwal Baru"}
             </button>
           </DialogFooter>
@@ -1365,85 +1457,6 @@ export default function Home() {
             </button>
             <button type="button" className="primary-button" disabled={busy || !pendingReason.trim()} onClick={savePending}>
               {busy ? "Menyimpan…" : "Simpan Pending"}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={Boolean(pinTarget)} onOpenChange={(open) => {
-        if (!open) {
-          setPinTarget(null);
-          setPinValue("");
-          setPinError("");
-        }
-      }}>
-        <DialogContent className="reschedule-dialog">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound size={20} className="text-amber-400" />
-              Otorisasi Super User
-            </DialogTitle>
-            <DialogDescription>
-              {pinAction === "approve"
-                ? `Masukkan PIN Super User untuk menyetujui request urgent ${pinTarget?.approvalCode || ""}.`
-                : `Masukkan PIN Super User untuk menyetujui jadwal baru request urgent ${pinTarget?.approvalCode || ""}.`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2 rounded-xl border border-slate-700/60 bg-slate-800/40 p-3 text-xs">
-            <span className="font-semibold text-slate-300">Otorisasi oleh:</span>
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-200 font-medium">
-                Superuser 1
-              </span>
-              <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-200 font-medium">
-                Superuser 2
-              </span>
-            </div>
-          </div>
-          <label className="reschedule-field">
-            <span>PIN Super User</span>
-            <input
-              type="password"
-              autoFocus
-              maxLength={10}
-              placeholder="Masukkan PIN"
-              value={pinValue}
-              onChange={(e) => {
-                setPinValue(e.target.value);
-                setPinError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && pinValue.trim() && !busy) {
-                  e.preventDefault();
-                  void confirmPin();
-                }
-              }}
-            />
-          </label>
-          {pinError && (
-            <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3.5 py-2 text-xs font-medium text-rose-300">
-              {pinError}
-            </div>
-          )}
-          <DialogFooter>
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={busy}
-              onClick={() => {
-                setPinTarget(null);
-                setPinValue("");
-                setPinError("");
-              }}
-            >
-              Batal
-            </button>
-            <button
-              type="button"
-              className="primary-button"
-              disabled={busy || !pinValue.trim()}
-              onClick={() => void confirmPin()}
-            >
-              {busy ? "Memverifikasi…" : pinAction === "approve" ? "Setujui Urgent" : "Konfirmasi Jadwal"}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -1641,12 +1654,14 @@ function UrgentApprovalList({
   onApprove,
   onReschedule,
   busy,
+  canApprove = true,
 }: {
   requests: ActivationRequest[];
   onOpen: (request: ActivationRequest) => void;
   onApprove: (request: ActivationRequest) => void;
   onReschedule: (request: ActivationRequest) => void;
   busy: boolean;
+  canApprove?: boolean;
 }) {
   return (
     <div>
@@ -1674,7 +1689,11 @@ function UrgentApprovalList({
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
                   <td data-label="Tindakan">
                     <div className="urgent-actions">
-                      <button type="button" className="approve-button" disabled={busy} onClick={(event) => { event.stopPropagation(); void onApprove(item); }}><CheckCircle2 size={16} /> Approve</button>
+                      {canApprove ? (
+                        <button type="button" className="approve-button" disabled={busy} onClick={(event) => { event.stopPropagation(); void onApprove(item); }}><CheckCircle2 size={16} /> Approve</button>
+                      ) : (
+                        <button type="button" className="approve-button opacity-40 cursor-not-allowed" disabled title="Hanya Superuser yang dapat menyetujui request urgent"><Lock size={15} /> Superuser Only</button>
+                      )}
                       <button type="button" className="reschedule-button" disabled={busy} onClick={(event) => { event.stopPropagation(); onReschedule(item); }}><CalendarClock size={16} /> Reschedule</button>
                     </div>
                   </td>
@@ -1696,11 +1715,13 @@ function RequestDetail({
   onClose,
   onEdit,
   onDelete,
+  canEdit = true,
 }: {
   request: ActivationRequest | null;
   onClose: () => void;
   onEdit: (request: ActivationRequest) => void;
   onDelete: (request: ActivationRequest) => void;
+  canEdit?: boolean;
 }) {
   return (
     <Sheet open={Boolean(request)} onOpenChange={(open) => !open && onClose()}>
@@ -1718,10 +1739,12 @@ function RequestDetail({
               <span className={`detail-status status-${request.status.toLowerCase().replaceAll(" ", "-")}`}>
                 {request.approvalStatus === "Waiting Approval" ? "Waiting Approval" : request.status}
               </span>
-              <div className="detail-actions">
-                <button type="button" onClick={() => onEdit(request)}><Pencil size={15} /> Edit</button>
-                <button type="button" className="danger" onClick={() => onDelete(request)}><Trash2 size={15} /> Hapus</button>
-              </div>
+              {canEdit && (
+                <div className="detail-actions">
+                  <button type="button" onClick={() => onEdit(request)}><Pencil size={15} /> Edit</button>
+                  <button type="button" className="danger" onClick={() => onDelete(request)}><Trash2 size={15} /> Hapus</button>
+                </div>
+              )}
             </SheetHeader>
 
             <div className="detail-scroll">

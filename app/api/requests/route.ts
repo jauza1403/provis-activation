@@ -2,6 +2,7 @@ import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { activationRequests } from "@/db/schema";
+import { getSessionUser } from "@/lib/auth";
 
 import { candidateSlots, SLOT_CAPACITY } from "@/lib/scheduling";
 function capacity(date: string, slot: string, excludeId = "") {
@@ -39,7 +40,6 @@ function getWibClock(date = new Date()) {
 }
 
 const allowedStatus = ["Idle", "On Progress", "Completed", "Reschedule", "Pending"];
-const SUPERUSER_PIN = "1234";
 const CUTOFF_HOUR = 17;
 
 function slotStartMinutes(timeSlot: string) {
@@ -47,13 +47,24 @@ function slotStartMinutes(timeSlot: string) {
   return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Sesi telah berakhir. Silakan login kembali." },
+        { status: 401 },
+      );
+    }
     const db = getDb();
-    const rows = await db
+    let rows = await db
       .select()
       .from(activationRequests)
       .orderBy(desc(activationRequests.createdAt));
+    if (user.role === "vendor_user" && user.vendorName.trim()) {
+      const vendor = user.vendorName.trim().toLowerCase();
+      rows = rows.filter((row) => row.vendorName.trim().toLowerCase() === vendor);
+    }
     const now = getWibClock();
     const nowMinutes = now.hour * 60 + now.minute;
     const normalized = rows.map((row) => {
@@ -86,6 +97,13 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Sesi telah berakhir. Silakan login kembali." },
+        { status: 401 },
+      );
+    }
     const wibNow = getWibClock();
     const body = (await request.json()) as any;
     const missing = required.find((key) => !String(body[key] ?? "").trim());
@@ -181,6 +199,19 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Sesi telah berakhir. Silakan login kembali." },
+        { status: 401 },
+      );
+    }
+    if (user.role === "vendor_user") {
+      return NextResponse.json(
+        { error: "Vendor tidak memiliki izin untuk mengubah data request." },
+        { status: 403 },
+      );
+    }
     const body = (await request.json()) as any;
     if (!body.id) {
       return NextResponse.json(
@@ -194,8 +225,16 @@ export async function PATCH(request: Request) {
     if (body.approvalStatus && !["Waiting Approval", "Approved", "Not Required"].includes(body.approvalStatus)) {
       return NextResponse.json({ error: "Status approval tidak valid." }, { status: 400 });
     }
-    if (body.approvalStatus === "Approved" && body.pin !== SUPERUSER_PIN) {
-      return NextResponse.json({ error: "PIN salah. Hanya super user yang dapat menyetujui request urgent." }, { status: 403 });
+    if (body.approvalStatus === "Approved") {
+      if (user.role !== "superuser") {
+        return NextResponse.json(
+          { error: "Akses ditolak. Hanya Superuser yang dapat menyetujui request urgent." },
+          { status: 403 },
+        );
+      }
+      console.info(
+        `[AUDIT] Urgent request ${body.id} approved by Superuser: ${user.username} (${user.name}) at ${new Date().toISOString()}`,
+      );
     }
     const update: Record<string, string | number | boolean> = {};
     if (body.status) {
@@ -269,6 +308,19 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Sesi telah berakhir. Silakan login kembali." },
+        { status: 401 },
+      );
+    }
+    if (user.role === "vendor_user") {
+      return NextResponse.json(
+        { error: "Vendor tidak memiliki izin untuk menghapus data request." },
+        { status: 403 },
+      );
+    }
     const body = (await request.json()) as any;
     if (!body.id) {
       return NextResponse.json({ error: "ID request tidak ditemukan." }, { status: 400 });

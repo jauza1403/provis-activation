@@ -55,3 +55,14 @@ export const activationRequests = sqliteTable(
     index("idx_activation_approval").on(table.approvalStatus, table.approvalCode),
   ],
 );
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  salt: text("salt").notNull(),
+  name: text("name").notNull(),
+  role: text("role").notNull(),
+  vendorName: text("vendor_name").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+});
