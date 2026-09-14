@@ -3,7 +3,7 @@
 import { slots, SLOT_CAPACITY, candidateSlots } from "@/lib/scheduling";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -14,7 +14,9 @@ import {
   ChevronRight,
   ClipboardList,
   Clock3,
+  KeyRound,
   LayoutDashboard,
+  Lock,
   Mail,
   Pencil,
   Plus,
@@ -24,6 +26,7 @@ import {
   RadioTower,
   Search,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -219,10 +222,25 @@ function buildSwitchEmail(request: ActivationRequest) {
     `- VLAN Switch: ${request.vlanSwitch || "?"}`,
     "- IP Switch: ?",
     "- Terminasi:",
+    `- Merek Switch: ${request.switchBrand || "-"}`,
+    "",
+    `Tanggal Aktivasi: ${request.activationDate}`,
+    `Timeslot: ${request.timeSlot}`,
+    `Project PIC: ${request.projectPic}`,
+    `Vendor PIC: ${request.vendorPic}`,
+    `Provisioning PIC: ${request.provisioningPic}`,
     "",
     "Demikian yang dapat kami sampaikan. Terima kasih atas perhatian dan kerja samanya.",
   ].join("\n");
   return { subject, body };
+}
+
+function switchWebDraftUrl(request: ActivationRequest) {
+  const { subject, body } = buildSwitchEmail(request);
+  const to = switchEmailTo.join(",");
+  const cc = switchEmailCc.join(",");
+  const mailto = `mailto:${to}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  return `https://outlook.office.com/mail/deeplink/compose?mailtouri=${encodeURIComponent(mailto)}`;
 }
 
 function escapeEmailHtml(value: string) {
@@ -338,6 +356,8 @@ declare global {
   }
 }
 
+const CUTOFF_HOUR = 17;
+
 export default function Home() {
   const [view, setView] = useState<"dashboard" | "form" | "urgentForm" | "urgent" | "pending" | "completed">("dashboard");
   const [requests, setRequests] = useState<ActivationRequest[]>([]);
@@ -359,9 +379,23 @@ export default function Home() {
   const [requestTypeDialog, setRequestTypeDialog] = useState(false);
   const [completedDateFilter, setCompletedDateFilter] = useState("all");
 
+  // 17:00 WIB cutoff — refreshed every minute
+  const [pastCutoff, setPastCutoff] = useState(() => getWibClock().hour >= CUTOFF_HOUR);
+  useEffect(() => {
+    const tick = () => setPastCutoff(getWibClock().hour >= CUTOFF_HOUR);
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // Super user PIN dialog state
+  const [pinTarget, setPinTarget] = useState<ActivationRequest | null>(null);
+  const [pinAction, setPinAction] = useState<"approve" | "reschedule">("approve");
+  const [pinValue, setPinValue] = useState("");
+  const [pinError, setPinError] = useState("");
+
   async function load() {
     const response = await fetch("/api/requests", { cache: "no-store" });
-    const data = await response.json();
+    const data = (await response.json()) as any;
     if (!response.ok) throw new Error(data.error);
     setRequests(data.requests ?? []);
   }
@@ -380,7 +414,7 @@ export default function Home() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(editingId ? { id: editingId, ...payload } : { ...payload, requestType: urgent ? "Urgent" : "Regular" }),
     });
-    const data = await response.json();
+    const data = (await response.json()) as any;
     if (!response.ok) throw new Error(data.error);
     setRequests((current) =>
       editingId
@@ -555,7 +589,7 @@ export default function Home() {
           pendingReason: pendingReason.trim(),
         }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as any;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) =>
         current.map((item) => item.id === pendingTarget.id ? data.request : item),
@@ -570,8 +604,9 @@ export default function Home() {
     }
   }
 
-  async function saveReschedule() {
+  async function saveReschedule(pin?: string) {
     if (!rescheduleTarget || !rescheduleDate) return;
+    const needsApproval = rescheduleTarget.approvalStatus === "Waiting Approval";
     setBusy(true);
     try {
       const response = await fetch("/api/requests", {
@@ -582,25 +617,43 @@ export default function Home() {
           status: "Reschedule",
           activationDate: rescheduleDate,
           pendingReason: "",
-          ...(rescheduleTarget.approvalStatus === "Waiting Approval" ? { approvalStatus: "Approved" } : {}),
+          ...(needsApproval ? { approvalStatus: "Approved", pin } : {}),
         }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as any;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) =>
         current.map((item) => item.id === rescheduleTarget.id ? data.request : item),
       );
       setSelectedRequest((current) => current?.id === rescheduleTarget.id ? data.request : current);
       setRescheduleTarget(null);
+      setPinTarget(null);
       setMessage("Jadwal aktivasi berhasil diubah.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Jadwal gagal diubah.");
+      const msg = error instanceof Error ? error.message : "Jadwal gagal diubah.";
+      if (msg.includes("PIN")) { setPinError(msg); } else { setPinTarget(null); setMessage(msg); }
     } finally {
       setBusy(false);
     }
   }
 
-  async function approveUrgent(item: ActivationRequest) {
+  // Opens PIN dialog before approving
+  function requestApproval(item: ActivationRequest) {
+    setPinTarget(item);
+    setPinAction("approve");
+    setPinValue("");
+    setPinError("");
+  }
+
+  // Opens PIN dialog before rescheduling an urgent request
+  function requestRescheduleAuth(item: ActivationRequest) {
+    setPinTarget(item);
+    setPinAction("reschedule");
+    setPinValue("");
+    setPinError("");
+  }
+
+  async function approveUrgent(item: ActivationRequest, pin: string) {
     setBusy(true);
     try {
       const response = await fetch("/api/requests", {
@@ -611,21 +664,37 @@ export default function Home() {
           approvalStatus: "Approved",
           activationDate: getWibClock().date,
           status: "On Progress",
+          pin,
         }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as any;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) => current.map((request) => request.id === item.id ? data.request : request));
       setSelectedRequest(null);
+      setPinTarget(null);
       setMessage(`${item.approvalCode} disetujui dan masuk jadwal aktivasi hari ini.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Approval urgent gagal disimpan.");
+      const msg = error instanceof Error ? error.message : "Approval urgent gagal disimpan.";
+      if (msg.includes("PIN")) { setPinError(msg); } else { setPinTarget(null); setMessage(msg); }
     } finally {
       setBusy(false);
     }
   }
 
+  async function confirmPin() {
+    if (!pinTarget || !pinValue.trim()) return;
+    if (pinAction === "approve") {
+      await approveUrgent(pinTarget, pinValue.trim());
+    } else {
+      await saveReschedule(pinValue.trim());
+    }
+  }
+
   function openNewRequest() {
+    if (pastCutoff) {
+      setMessage("Pengajuan request reguler sudah tutup setelah pukul 17:00 WIB. Silakan ajukan Request Urgent.");
+      return;
+    }
     setEditingId(null);
     setForm(emptyForm);
     setSelectedRequest(null);
@@ -689,7 +758,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: deleteTarget.id }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as any;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) => current.filter((item) => item.id !== deleteTarget.id));
       setSelectedRequest((current) => current?.id === deleteTarget.id ? null : current);
@@ -786,9 +855,11 @@ export default function Home() {
           </button>
           <button
             onClick={openNewRequest}
-            className={`nav-button ${view === "form" ? "active" : ""}`}
+            disabled={pastCutoff}
+            title={pastCutoff ? "Pengajuan reguler tutup pukul 17:00 WIB" : undefined}
+            className={`nav-button ${view === "form" ? "active" : ""} ${pastCutoff ? "disabled" : ""}`}
           >
-            <Plus size={18} />
+            {pastCutoff ? <Lock size={18} /> : <Plus size={18} />}
             Request Baru
           </button>
           <button
@@ -822,10 +893,10 @@ export default function Home() {
             Selesai
             {completedRequests.length > 0 && <span className="nav-count completed-count">{completedRequests.length}</span>}
           </button>
-          <div className="deadline-note mt-auto hidden lg:block">
-            <span className="deadline-icon"><Clock3 size={18} /></span>
-            <b>Pengajuan dibuka</b>
-            <p>Vendor dapat mengirim request aktivasi kapan saja.</p>
+          <div className={`deadline-note mt-auto hidden lg:block ${pastCutoff ? "cutoff-active" : ""}`}>
+            <span className="deadline-icon">{pastCutoff ? <ShieldAlert size={18} /> : <Clock3 size={18} />}</span>
+            <b>{pastCutoff ? "Pengajuan reguler tutup" : "Pengajuan dibuka"}</b>
+            <p>{pastCutoff ? "Setelah pukul 17:00 WIB, gunakan Request Urgent." : "Request reguler dibuka sampai pukul 17:00 WIB."}</p>
           </div>
         </aside>
 
@@ -1051,11 +1122,37 @@ export default function Home() {
               urgent={view === "urgentForm"}
               onCancel={() => { setEditingId(null); setForm(emptyForm); setView("dashboard"); }}
               onSubmit={async () => {
+                if (busy) return;
+                const openDraft = form.installSwitch && !editingId;
+                let draftTab: Window | null = null;
+                // Reserve the tab during the user gesture, before awaiting the save.
+                if (openDraft) {
+                  try {
+                    draftTab = window.open("about:blank", "_blank");
+                    if (draftTab) {
+                      draftTab.opener = null;
+                      draftTab.document.title = "Menyiapkan draft IP Switch";
+                      draftTab.document.body.textContent = "Menyimpan request dan menyiapkan draft Outlook…";
+                    }
+                  } catch {
+                    draftTab?.close();
+                    draftTab = null;
+                  }
+                }
                 setBusy(true);
                 setMessage("");
                 try {
-                  await submit(form, view === "urgentForm");
+                  const saved = await submit(form, view === "urgentForm");
+                  if (openDraft) {
+                    if (draftTab && !draftTab.closed) {
+                      try { draftTab.location.replace(switchWebDraftUrl(saved)); }
+                      catch { draftTab.close(); setSwitchEmailTarget(saved); }
+                    } else {
+                      setSwitchEmailTarget(saved);
+                    }
+                  }
                 } catch (error) {
+                  draftTab?.close();
                   setMessage(
                     error instanceof Error
                       ? error.message
@@ -1067,7 +1164,7 @@ export default function Home() {
               }}
             />
           ) : view === "urgent" ? (
-            <UrgentApprovalList requests={urgentRequests} onOpen={setSelectedRequest} onApprove={approveUrgent} onReschedule={openReschedule} busy={busy} />
+            <UrgentApprovalList requests={urgentRequests} onOpen={setSelectedRequest} onApprove={requestApproval} onReschedule={openReschedule} busy={busy} />
           ) : view === "completed" ? (
             <CompletedList
               requests={completedForDate}
@@ -1105,15 +1202,7 @@ export default function Home() {
               type="button"
               onClick={() => {
                 if (!switchEmailTarget) return;
-                const { subject, body } = buildSwitchEmail(switchEmailTarget);
-                const params = new URLSearchParams({
-                  to: switchEmailTo.join(","),
-                  cc: switchEmailCc.join(","),
-                  subject,
-                  body,
-                });
-                const url = `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
-                window.open(url, "_blank", "noopener,noreferrer");
+                window.open(switchWebDraftUrl(switchEmailTarget), "_blank", "noopener,noreferrer");
                 setSwitchEmailTarget(null);
               }}
             >
@@ -1126,7 +1215,10 @@ export default function Home() {
               onClick={() => {
                 if (!switchEmailTarget) return;
                 const { subject, body } = buildSwitchEmail(switchEmailTarget);
-                const url = `ms-outlook://compose?to=${encodeURIComponent(switchEmailTo.join(";"))}&cc=${encodeURIComponent(switchEmailCc.join(";"))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                const msTo = switchEmailTo.join(",");
+                const msCc = switchEmailCc.join(",");
+                const mailto = `mailto:${msTo}?cc=${encodeURIComponent(msCc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                const url = `ms-outlook://compose?mailtouri=${encodeURIComponent(mailto)}`;
                 window.location.href = url;
                 setSwitchEmailTarget(null);
               }}
@@ -1161,12 +1253,13 @@ export default function Home() {
           <div className="request-type-options">
             <button
               type="button"
-              className="request-type-option regular"
+              className={`request-type-option regular ${pastCutoff ? "disabled" : ""}`}
+              disabled={pastCutoff}
               onClick={() => { setRequestTypeDialog(false); openNewRequest(); }}
             >
-              <span><Plus size={20} /></span>
-              <div><b>Request New</b><small>Request aktivasi reguler</small></div>
-              <ChevronRight size={19} />
+              <span>{pastCutoff ? <Lock size={20} /> : <Plus size={20} />}</span>
+              <div><b>Request New</b><small>{pastCutoff ? "Tutup setelah pukul 17:00 WIB" : "Request aktivasi reguler"}</small></div>
+              {!pastCutoff && <ChevronRight size={19} />}
             </button>
             <button
               type="button"
@@ -1236,7 +1329,13 @@ export default function Home() {
             <button type="button" className="secondary-button" disabled={busy} onClick={() => setRescheduleTarget(null)}>
               Batal
             </button>
-            <button type="button" className="primary-button" disabled={busy || !rescheduleDate} onClick={saveReschedule}>
+            <button type="button" className="primary-button" disabled={busy || !rescheduleDate} onClick={() => {
+              if (rescheduleTarget?.approvalStatus === "Waiting Approval") {
+                requestRescheduleAuth(rescheduleTarget);
+              } else {
+                void saveReschedule();
+              }
+            }}>
               {busy ? "Menyimpan…" : "Simpan Jadwal Baru"}
             </button>
           </DialogFooter>
@@ -1270,6 +1369,85 @@ export default function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={Boolean(pinTarget)} onOpenChange={(open) => {
+        if (!open) {
+          setPinTarget(null);
+          setPinValue("");
+          setPinError("");
+        }
+      }}>
+        <DialogContent className="reschedule-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound size={20} className="text-amber-400" />
+              Otorisasi Super User
+            </DialogTitle>
+            <DialogDescription>
+              {pinAction === "approve"
+                ? `Masukkan PIN Super User untuk menyetujui request urgent ${pinTarget?.approvalCode || ""}.`
+                : `Masukkan PIN Super User untuk menyetujui jadwal baru request urgent ${pinTarget?.approvalCode || ""}.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 rounded-xl border border-slate-700/60 bg-slate-800/40 p-3 text-xs">
+            <span className="font-semibold text-slate-300">Otorisasi oleh:</span>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-200 font-medium">
+                Superuser 1
+              </span>
+              <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-200 font-medium">
+                Superuser 2
+              </span>
+            </div>
+          </div>
+          <label className="reschedule-field">
+            <span>PIN Super User</span>
+            <input
+              type="password"
+              autoFocus
+              maxLength={10}
+              placeholder="Masukkan PIN"
+              value={pinValue}
+              onChange={(e) => {
+                setPinValue(e.target.value);
+                setPinError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && pinValue.trim() && !busy) {
+                  e.preventDefault();
+                  void confirmPin();
+                }
+              }}
+            />
+          </label>
+          {pinError && (
+            <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3.5 py-2 text-xs font-medium text-rose-300">
+              {pinError}
+            </div>
+          )}
+          <DialogFooter>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy}
+              onClick={() => {
+                setPinTarget(null);
+                setPinValue("");
+                setPinError("");
+              }}
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={busy || !pinValue.trim()}
+              onClick={() => void confirmPin()}
+            >
+              {busy ? "Memverifikasi…" : pinAction === "approve" ? "Setujui Urgent" : "Konfirmasi Jadwal"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
@@ -1289,6 +1467,7 @@ function CompletedList({
   onDelete: (request: ActivationRequest) => void;
   onDeleteAll: () => void;
 }) {
+  const [calendarOpen, setCalendarOpen] = useState(false);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -1310,19 +1489,32 @@ function CompletedList({
             <button
               type="button"
               className={`view-all-button ${selectedDate === "all" ? "active" : ""}`}
-              onClick={() => onDateChange("all")}
+              aria-pressed={selectedDate === "all"}
+              onClick={() => { onDateChange("all"); setCalendarOpen(false); }}
             >
               <ClipboardList size={15} /> View All
             </button>
-            <label className="completed-date-filter">
-              <span>Pilih tanggal</span>
-              <input
-                type="date"
-                value={selectedDate === "all" ? "" : selectedDate}
-                onChange={(event) => onDateChange(event.target.value || "all")}
-              />
-              {selectedDate !== "all" && <b className="calendar-date-label">{formatActivationDate(selectedDate)}</b>}
-            </label>
+            <div className="completed-date-filter">
+              <span id="completed-date-label">Tanggal selesai</span>
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <button type="button" className="activation-date-trigger" aria-labelledby="completed-date-label completed-date-value">
+                    <span id="completed-date-value">{selectedDate === "all" ? "Pilih tanggal" : formatActivationDate(selectedDate)}</span>
+                    <CalendarDays size={17} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="activation-calendar-popover w-auto p-0" align="end">
+                  <Calendar className="activation-calendar" mode="single"
+                    selected={selectedDate === "all" ? undefined : new Date(selectedDate + "T00:00:00")}
+                    defaultMonth={selectedDate === "all" ? undefined : new Date(selectedDate + "T00:00:00")}
+                    onSelect={(date) => {
+                      if (!date) return;
+                      onDateChange([date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-"));
+                      setCalendarOpen(false);
+                    }} />
+                </PopoverContent>
+              </Popover>
+            </div>
             <button type="button" className="bulk-delete-button" disabled={!requests.length} onClick={onDeleteAll}>
               <Trash2 size={15} /> Hapus Semua
             </button>
@@ -1691,7 +1883,7 @@ function RequestForm({
     if (effectiveSlot && effectiveSlot !== form.timeSlot) setForm((current) => ({ ...current, timeSlot: effectiveSlot }));
   }, [effectiveSlot, form.timeSlot, setForm]);
   const input = (key: keyof typeof emptyForm) => ({
-    value: form[key],
+    value: (form[key] ?? "") as string | number,
     onChange: (
       event: React.ChangeEvent<
         HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -2019,6 +2211,7 @@ function RequestForm({
             </Field>
           </div>
         </FormSection>
+        {form.installSwitch && !editing && <p className="date-preview">Setelah request tersimpan, draft Outlook Web akan terbuka otomatis untuk diperiksa dan dikirim.</p>}
         <div className="flex flex-wrap justify-end gap-3">
           {editing && (
             <button disabled={busy} className="secondary-button" type="button" onClick={onCancel}>

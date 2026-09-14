@@ -78,10 +78,15 @@ button, select { cursor: pointer; }
 .request-type-option:hover { transform:translateY(-1px); background:rgba(255,255,255,.055); }
 .request-type-option.regular:hover { border-color:rgba(85,200,255,.32); }
 .request-type-option.urgent:hover { border-color:rgba(251,113,133,.36); }
+.request-type-option:disabled { cursor:not-allowed; opacity:.42; transform:none!important; }
 .deadline-note { border:1px solid rgba(255,255,255,.08); border-radius:18px; padding:16px; background:linear-gradient(145deg,rgba(20,39,57,.88),rgba(10,25,39,.88)); }
+.deadline-note.cutoff-active { border-color:rgba(244,63,94,.28); background:linear-gradient(145deg,rgba(40,18,28,.9),rgba(24,11,18,.9)); }
 .deadline-note b { color:#edf5fb; font-size:13px; }
+.deadline-note.cutoff-active b { color:#fecdd3; }
 .deadline-note p { margin:8px 0 0; color:#7f94a7; font-size:12px; line-height:1.55; }
-.deadline-icon { display:grid; width:34px; height:34px; place-items:center; margin-bottom:13px; border-radius:10px; background:rgba(56,189,248,.1); color:#67d9fa; }
+.deadline-note.cutoff-active p { color:#fda4af; }
+.deadline-note .deadline-icon { display:grid; width:34px; height:34px; place-items:center; margin-bottom:13px; border-radius:10px; background:rgba(56,189,248,.1); color:#67d9fa; }
+.deadline-note.cutoff-active .deadline-icon { background:rgba(244,63,94,.12); color:#fb7185; }
 
 .eyebrow {
   display:inline-flex;
@@ -973,3 +978,6 @@ td > span:not(.media-badge) { color:#7f8c9e; }
 .activation-calendar-popover button:hover { background-color:#24344a; }
 .activation-calendar-popover button[data-selected-single="true"] { background-color:#2563eb; color:#fff; }
 .activation-calendar-popover .rdp-today { background-color:#1e3048; color:#93c5fd; }
+
+.completed-date-filter .activation-date-trigger { min-width:170px; max-width:100%; }
+.completed-date-filter .activation-date-trigger span { font-size:.875rem; font-weight:400; color:#e5edf5; }

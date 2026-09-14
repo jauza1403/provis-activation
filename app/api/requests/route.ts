@@ -39,6 +39,8 @@ function getWibClock(date = new Date()) {
 }
 
 const allowedStatus = ["Idle", "On Progress", "Completed", "Reschedule", "Pending"];
+const SUPERUSER_PIN = "1234";
+const CUTOFF_HOUR = 17;
 
 function slotStartMinutes(timeSlot: string) {
   const match = timeSlot.match(/^(\d{2})\.(\d{2})/);
@@ -85,7 +87,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const wibNow = getWibClock();
-    const body = await request.json();
+    const body = (await request.json()) as any;
     const missing = required.find((key) => !String(body[key] ?? "").trim());
     const needsRfa = !["Interkoneksi", "Existing Link"].includes(body.accessMedia);
     const missingRfa = needsRfa && rfaFields.find((key) => !String(body[key] ?? "").trim());
@@ -105,6 +107,12 @@ export async function POST(request: Request) {
     }
     if (!validSchedule(body.activationDate, body.timeSlot)) return NextResponse.json({ error: "Tanggal atau slot tidak valid." }, { status: 400 });
     const isUrgent = body.requestType === "Urgent";
+    if (!isUrgent && wibNow.hour >= CUTOFF_HOUR) {
+      return NextResponse.json(
+        { error: "Pengajuan request reguler sudah tutup (setelah pukul 17:00 WIB). Gunakan Request Urgent." },
+        { status: 403 },
+      );
+    }
     const row = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -173,7 +181,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as any;
     if (!body.id) {
       return NextResponse.json(
         { error: "ID request tidak ditemukan." },
@@ -185,6 +193,9 @@ export async function PATCH(request: Request) {
     }
     if (body.approvalStatus && !["Waiting Approval", "Approved", "Not Required"].includes(body.approvalStatus)) {
       return NextResponse.json({ error: "Status approval tidak valid." }, { status: 400 });
+    }
+    if (body.approvalStatus === "Approved" && body.pin !== SUPERUSER_PIN) {
+      return NextResponse.json({ error: "PIN salah. Hanya super user yang dapat menyetujui request urgent." }, { status: 403 });
     }
     const update: Record<string, string | number | boolean> = {};
     if (body.status) {
@@ -258,7 +269,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as any;
     if (!body.id) {
       return NextResponse.json({ error: "ID request tidak ditemukan." }, { status: 400 });
     }
