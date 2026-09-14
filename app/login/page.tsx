@@ -4,39 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
-  CheckCircle2,
   KeyRound,
   Lock,
-  ShieldCheck,
-  Sparkles,
   User,
   AlertCircle,
-  Building2,
 } from "lucide-react";
-
-const testAccounts = [
-  {
-    username: "superuser",
-    password: "superuser123",
-    label: "Superuser",
-    desc: "Akses penuh (Semua fitur + Approve Urgent)",
-    badgeColor: "bg-purple-500/20 text-purple-300 border-purple-500/30",
-  },
-  {
-    username: "projectuser",
-    password: "projectuser123",
-    label: "Project User",
-    desc: "Kelola data & jadwal (Tanpa Approve Urgent)",
-    badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/30",
-  },
-  {
-    username: "vendoruser",
-    password: "vendoruser123",
-    label: "Vendor User",
-    desc: "Submit request & monitoring (Akun bersama semua vendor)",
-    badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-  },
-];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -76,12 +48,6 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function fillCredentials(u: string, p: string) {
-    setUsername(u);
-    setPassword(p);
-    setError("");
   }
 
   return (
@@ -190,45 +156,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Seed accounts quick-selector */}
-          <div className="mt-8 pt-6 border-t border-slate-800">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Sparkles size={12} className="text-amber-400" />
-                Pilih Akun Demo (Quick-fill)
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {testAccounts.map((acc) => (
-                <button
-                  key={acc.username}
-                  type="button"
-                  onClick={() => fillCredentials(acc.username, acc.password)}
-                  className="w-full text-left p-2.5 rounded-xl border border-slate-800 hover:border-slate-700 bg-slate-950/40 hover:bg-slate-800/40 transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150 active:scale-[.96] group cursor-pointer flex items-center justify-between"
-                >
-                  <div className="min-w-0 pr-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-slate-200 group-hover:text-sky-300 transition-colors duration-150">
-                        {acc.username}
-                      </span>
-                      <span
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${acc.badgeColor}`}
-                      >
-                        {acc.label}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                      {acc.desc}
-                    </p>
-                  </div>
-                  <span className="text-xs text-sky-400/80 group-hover:text-sky-300 shrink-0 font-mono">
-                    {acc.password}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Footer info */}
