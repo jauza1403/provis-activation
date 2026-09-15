@@ -343,7 +343,7 @@ const emptyForm = {
   timeSlot: slots[0],
   area: "",
   vendorName: "",
-  accessMedia: "Metro",
+  accessMedia: "METRO",
   serviceType: "",
   workType: "",
   isRelocation: false,
@@ -531,7 +531,7 @@ export default function Home() {
           timeSlot: { type: "string", enum: slots },
           area: { type: "string" },
           vendorName: { type: "string" },
-          accessMedia: { type: "string", enum: ["Metro", "GPON", "Interkoneksi", "Existing Link", "DWDM", "M2M", "METRO", "SDWAN", "Skyfiber", "UTP", "VSAT", "Wireless"] },
+          accessMedia: { type: "string", enum: ["GPON", "Interkoneksi", "Existing Link", "DWDM", "M2M", "METRO", "SDWAN", "Skyfiber", "UTP", "VSAT", "Wireless"] },
           serviceType: { type: "string", enum: serviceTypes },
           workType: { type: "string", enum: workTypes },
           isRelocation: { type: "boolean" },
@@ -1251,36 +1251,11 @@ export default function Home() {
               onCancel={() => { setEditingId(null); setForm(emptyForm); setView("dashboard"); }}
               onSubmit={async () => {
                 if (busy) return;
-                const openDraft = form.installSwitch && !editingId;
-                let draftTab: Window | null = null;
-                // Reserve the tab during the user gesture, before awaiting the save.
-                if (openDraft) {
-                  try {
-                    draftTab = window.open("about:blank", "_blank");
-                    if (draftTab) {
-                      draftTab.opener = null;
-                      draftTab.document.title = "Menyiapkan draft IP Switch";
-                      draftTab.document.body.textContent = "Menyimpan request dan menyiapkan draft Outlook…";
-                    }
-                  } catch {
-                    draftTab?.close();
-                    draftTab = null;
-                  }
-                }
                 setBusy(true);
                 setMessage("");
                 try {
-                  const saved = await submit(form, view === "urgentForm");
-                  if (openDraft) {
-                    if (draftTab && !draftTab.closed) {
-                      try { draftTab.location.replace(switchWebDraftUrl(saved)); }
-                      catch { draftTab.close(); setSwitchEmailTarget(saved); }
-                    } else {
-                      setSwitchEmailTarget(saved);
-                    }
-                  }
+                  await submit(form, view === "urgentForm");
                 } catch (error) {
-                  draftTab?.close();
                   setMessage(
                     error instanceof Error
                       ? error.message
@@ -2094,7 +2069,6 @@ function RequestForm({
             </Field>
             <Field label="Akses Media">
               <select {...input("accessMedia")}>
-                <option>Metro</option>
                 <option>GPON</option>
                 <option>Interkoneksi</option>
                 <option>Existing Link</option>
@@ -2238,7 +2212,6 @@ function RequestForm({
             )}
           </div>
         </FormSection>
-        {form.installSwitch && !editing && <p className="date-preview">Setelah request tersimpan, draft Outlook Web akan terbuka otomatis untuk diperiksa dan dikirim.</p>}
         <div className="flex flex-wrap justify-end gap-3">
           {editing && (
             <button disabled={busy} className="secondary-button" type="button" onClick={onCancel}>
