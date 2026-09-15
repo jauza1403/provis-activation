@@ -69,6 +69,7 @@ type ActivationRequest = {
   vendorName: string;
   accessMedia: string;
   serviceType: string;
+  workType: string;
   isRelocation: boolean;
   isRelayout: boolean;
   customerName: string;
@@ -135,6 +136,24 @@ const serviceTypes = [
   "L3VPN MPLS",
   "Leased-Line GCP",
   "Leased-Line AWS",
+];
+const workTypes = [
+  "Bandwidth on Demand Existing Site",
+  "Bandwidth on Demand Existing Site with New Equipment",
+  "Bandwidth on Demand New Site",
+  "Change Media/Service",
+  "Dismantle Old Site",
+  "Downgrade",
+  "Isolate",
+  "New Installation",
+  "New Installation with Additional Service",
+  "Relayout",
+  "Relocation",
+  "Relocation (Activate with New Equipment)",
+  "Renewal Bandwidth With Equipment",
+  "Resume",
+  "Upgrade Bandwidth",
+  "Upgrade Equipment with BW",
 ];
 const switchBrands = ["Huawei", "H3C", "Raisecom", "Cisco"];
 const switchEmailTo = [
@@ -234,7 +253,7 @@ function buildSwitchEmail(request: ActivationRequest) {
     `- Merek Switch: ${request.switchBrand || "-"}`,
     "",
     `Tanggal Aktivasi: ${request.activationDate}`,
-    `Timeslot: ${request.timeSlot}`,
+    `Time: ${request.timeSlot}`,
     `Project PIC: ${request.projectPic}`,
     `Vendor PIC: ${request.vendorPic}`,
     `Provisioning PIC: ${request.provisioningPic}`,
@@ -326,6 +345,7 @@ const emptyForm = {
   vendorName: "",
   accessMedia: "Metro",
   serviceType: "",
+  workType: "",
   isRelocation: false,
   isRelayout: false,
   customerName: "",
@@ -407,6 +427,10 @@ export default function Home() {
     const response = await fetch("/api/requests", { cache: "no-store" });
     if (response.status === 401) {
       window.location.href = "/login";
+      return;
+    }
+    if (response.status === 503) {
+      setRequests([]);
       return;
     }
     const data = (await response.json()) as any;
@@ -507,8 +531,9 @@ export default function Home() {
           timeSlot: { type: "string", enum: slots },
           area: { type: "string" },
           vendorName: { type: "string" },
-          accessMedia: { type: "string", enum: ["GPON", "Metro", "Interkoneksi", "Existing Link"] },
+          accessMedia: { type: "string", enum: ["Metro", "GPON", "Interkoneksi", "Existing Link", "DWDM", "M2M", "METRO", "SDWAN", "Skyfiber", "UTP", "VSAT", "Wireless"] },
           serviceType: { type: "string", enum: serviceTypes },
+          workType: { type: "string", enum: workTypes },
           isRelocation: { type: "boolean" },
           isRelayout: { type: "boolean" },
           customerName: { type: "string" },
@@ -543,6 +568,7 @@ export default function Home() {
           "vendorName",
           "accessMedia",
           "serviceType",
+          "workType",
           "customerName",
           "siteId",
           "subsId",
@@ -750,6 +776,7 @@ export default function Home() {
       vendorName: item.vendorName,
       accessMedia: item.accessMedia,
       serviceType: item.serviceType || "",
+      workType: item.workType || "",
       isRelocation: Boolean(item.isRelocation),
       isRelayout: Boolean(item.isRelayout),
       customerName: item.customerName,
@@ -1071,7 +1098,7 @@ export default function Home() {
                       <tr>
                         <th>Customer</th>
                         <th>Jadwal Aktivasi</th>
-                        <th>Timeslot</th>
+                        <th>Time</th>
                         <th>Area & Vendor</th>
                         <th>Media</th>
                         <th>PIC Provisioning</th>
@@ -1103,7 +1130,7 @@ export default function Home() {
                           <td data-label="Jadwal Aktivasi">
                             <b className="capitalize">{formatActivationDate(item.activationDate)}</b>
                           </td>
-                          <td data-label="Timeslot">
+                          <td data-label="Time">
                             <span className="timeslot-badge"><Clock3 size={14} /> {item.timeSlot}</span>
                           </td>
                           <td data-label="Area & Vendor">
@@ -1422,7 +1449,7 @@ export default function Home() {
             <DialogTitle>Ganti Tanggal Aktivasi</DialogTitle>
             <DialogDescription>
               Tentukan tanggal aktivasi baru untuk {rescheduleTarget?.customerName || rescheduleTarget?.siteId}.
-              Timeslot {rescheduleTarget?.timeSlot}; jika penuh, otomatis pindah ke slot berikutnya yang tersedia.
+              Time {rescheduleTarget?.timeSlot}; jika penuh, otomatis pindah ke slot berikutnya yang tersedia.
             </DialogDescription>
           </DialogHeader>
           <label className="reschedule-field">
@@ -1763,8 +1790,8 @@ function RequestDetail({
                 <DetailItem label="Nama Customer" value={request.customerName || "-"} wide />
                 <DetailItem label="Service Type" value={request.serviceType || "Belum ditentukan"} wide />
                 <DetailItem
-                  label="Pekerjaan Opsional"
-                  value={[
+                  label="Work Type"
+                  value={request.workType || [
                     request.isRelocation ? "Relocation" : "",
                     request.isRelayout ? "Relayout" : "",
                   ].filter(Boolean).join(" & ") || "-"}
@@ -1778,7 +1805,7 @@ function RequestDetail({
 
               <DetailSection title="Jadwal Aktivasi">
                 <DetailItem label="Hari & Tanggal" value={formatActivationDate(request.activationDate)} wide />
-                <DetailItem label="Timeslot" value={request.timeSlot} />
+                <DetailItem label="Time" value={request.timeSlot} />
                 <DetailItem label="Status" value={request.status} />
                 {request.status === "Completed" && (
                   <DetailItem label="Waktu Selesai" value={`${formatActivationDate(getCompletedDate(request))} · ${formatCompletedTime(request.completedAt)}`} wide />
@@ -1954,7 +1981,35 @@ function RequestForm({
           onSubmit();
         }}
       >
-        <FormSection number="01" title="Data Customer" icon={<Building2 size={18} />}>
+        <FormSection number="01" title="Jadwal Aktivasi" icon={<CalendarDays size={18} />}>
+          <div className="form-grid">
+            <Field label="Tanggal Aktivasi">
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild><button type="button" className="activation-date-trigger"><span>{form.activationDate ? formatActivationDate(form.activationDate) : "Pilih tanggal aktivasi"}</span><CalendarDays size={19} /></button></PopoverTrigger>
+                <PopoverContent className="activation-calendar-popover w-auto p-0" align="start">
+                  <Calendar className="activation-calendar" mode="single" selected={form.activationDate ? new Date(form.activationDate + "T00:00:00") : undefined} onSelect={(date) => {
+                    if (!date) return;
+                    const value = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+                    const next = slots.find((slot) => requests.filter((item) => item.activationDate === value && item.timeSlot === slot).length < SLOT_CAPACITY);
+                    setForm({ ...form, activationDate: value, timeSlot: next ?? slots[0] });
+                    setCalendarOpen(false);
+                  }} />
+                </PopoverContent>
+              </Popover>
+            </Field>
+            <Field label="Time Aktivasi" wide>
+              <div className="slot-grid">
+                {slots.map((slot, index) => <label key={slot} className={[effectiveSlot === slot ? "selected" : "", counts[slot] >= SLOT_CAPACITY ? "slot-full" : ""].join(" ")}>
+                  <input type="radio" name="slot" value={slot} disabled={!form.activationDate || counts[slot] >= SLOT_CAPACITY} checked={effectiveSlot === slot} onChange={(event) => setForm({ ...form, timeSlot: event.target.value })} />
+                  <b>Slot {index + 1}</b><span>{slot}</span><span>{form.activationDate ? counts[slot] + "/10 request" + (counts[slot] >= SLOT_CAPACITY ? " · Penuh" : "") : "Pilih tanggal dahulu"}</span>
+                </label>)}
+              </div>
+            </Field>
+            <p className="wide date-preview" role="status">{scheduleFull ? "Slot penuh. Pilih slot sebelumnya yang tersedia atau tanggal lain." : "Maksimal 10 request per slot. Slot penuh otomatis dialihkan ke slot berikutnya."}</p>
+            <Field label="Catatan Tambahan" wide><textarea rows={3} placeholder="Kebutuhan akses, kendala lokasi, atau informasi tambahan" {...input("notes")} /></Field>
+          </div>
+        </FormSection>
+        <FormSection number="02" title="Data Customer" icon={<Building2 size={18} />}>
           <div className="form-grid">
             <Field label="Nama Customer" wide>
               <input
@@ -1969,27 +2024,11 @@ function RequestForm({
                 {serviceTypes.map((service) => <option key={service}>{service}</option>)}
               </select>
             </Field>
-            <Field label="Pekerjaan Opsional" wide>
-              <div className="optional-work-grid">
-                <label className={form.isRelocation ? "selected" : ""}>
-                  <input
-                    type="checkbox"
-                    checked={form.isRelocation}
-                    onChange={(event) => setForm({ ...form, isRelocation: event.target.checked })}
-                  />
-                  <span>Relocation</span>
-                  <small>Aktivasi mencakup perpindahan lokasi layanan.</small>
-                </label>
-                <label className={form.isRelayout ? "selected" : ""}>
-                  <input
-                    type="checkbox"
-                    checked={form.isRelayout}
-                    onChange={(event) => setForm({ ...form, isRelayout: event.target.checked })}
-                  />
-                  <span>Relayout</span>
-                  <small>Aktivasi mencakup perubahan jalur atau penataan ulang.</small>
-                </label>
-              </div>
+            <Field label="Work Type" wide>
+              <select required={!editing} {...input("workType")}>
+                <option value="" disabled={!editing}>Pilih Work Type</option>
+                {workTypes.map((workType) => <option key={workType}>{workType}</option>)}
+              </select>
             </Field>
             <Field label="Site ID">
               <input required placeholder="S007xxxx" {...input("siteId")} />
@@ -2016,7 +2055,7 @@ function RequestForm({
             </Field>
           </div>
         </FormSection>
-        <FormSection number="02" title="Area & Penanggung Jawab" icon={<ShieldCheck size={18} />}>
+        <FormSection number="03" title="Area & Penanggung Jawab" icon={<ShieldCheck size={18} />}>
           <div className="form-grid">
             <Field label="Area">
               <input
@@ -2059,11 +2098,19 @@ function RequestForm({
                 <option>GPON</option>
                 <option>Interkoneksi</option>
                 <option>Existing Link</option>
+                <option>DWDM</option>
+                <option>M2M</option>
+                <option>METRO</option>
+                <option>SDWAN</option>
+                <option>Skyfiber</option>
+                <option>UTP</option>
+                <option>VSAT</option>
+                <option>Wireless</option>
               </select>
             </Field>
           </div>
         </FormSection>
-        <FormSection number="03" title="Perangkat & RFA" icon={<RadioTower size={18} />}>
+        <FormSection number="04" title="Perangkat & RFA" icon={<RadioTower size={18} />}>
           <div className="form-grid">
             <Field label="Perangkat yang Dipasang" wide>
               <textarea
@@ -2189,60 +2236,6 @@ function RequestForm({
                 <span><b>Mode {form.accessMedia}</b> Data RFA tidak diwajibkan. Lengkapi perangkat yang akan dipasang.</span>
               </div>
             )}
-          </div>
-        </FormSection>
-        <FormSection number="04" title="Jadwal Aktivasi" icon={<CalendarDays size={18} />}>
-          <div className="form-grid">
-            <Field label="Tanggal Aktivasi">
-              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-                <PopoverTrigger asChild>
-                  <button type="button" className="activation-date-trigger"><span>{form.activationDate ? formatActivationDate(form.activationDate) : "Pilih tanggal aktivasi"}</span><CalendarDays size={19} /></button>
-                </PopoverTrigger>
-                <PopoverContent className="activation-calendar-popover w-auto p-0" align="start">
-                  <Calendar className="activation-calendar" mode="single" selected={form.activationDate ? new Date(form.activationDate + "T00:00:00") : undefined}
-                    onSelect={(date) => {
-                      if (!date) return;
-                      const value = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
-                      const next = slots.find((slot) => requests.filter((item) => item.activationDate === value && item.timeSlot === slot).length < SLOT_CAPACITY);
-                      setForm({ ...form, activationDate: value, timeSlot: next ?? slots[0] });
-                      setCalendarOpen(false);
-                    }} />
-                </PopoverContent>
-              </Popover>
-
-            </Field>
-            <Field label="Timeslot Aktivasi" wide>
-              <div className="slot-grid">
-                {slots.map((slot, index) => (
-                  <label
-                    key={slot}
-                    className={[effectiveSlot === slot ? "selected" : "", counts[slot] >= SLOT_CAPACITY ? "slot-full" : ""].join(" ")}
-                  >
-                    <input
-                      type="radio"
-                      name="slot"
-                      value={slot}
-                      disabled={!form.activationDate || counts[slot] >= SLOT_CAPACITY}
-                      checked={effectiveSlot === slot}
-                      onChange={(event) =>
-                        setForm({ ...form, timeSlot: event.target.value })
-                      }
-                    />
-                    <b>Slot {index + 1}</b>
-                    <span>{slot}</span>
-                    <span>{form.activationDate ? counts[slot] + "/10 request" + (counts[slot] >= SLOT_CAPACITY ? " · Penuh" : "") : "Pilih tanggal dahulu"}</span>
-                  </label>
-                ))}
-              </div>
-            </Field>
-            <p className="wide date-preview" role="status">{scheduleFull ? "Slot penuh. Pilih slot sebelumnya yang tersedia atau tanggal lain." : "Maksimal 10 request per slot. Slot penuh otomatis dialihkan ke slot berikutnya."}</p>
-            <Field label="Catatan Tambahan" wide>
-              <textarea
-                rows={3}
-                placeholder="Kebutuhan akses, kendala lokasi, atau informasi tambahan"
-                {...input("notes")}
-              />
-            </Field>
           </div>
         </FormSection>
         {form.installSwitch && !editing && <p className="date-preview">Setelah request tersimpan, draft Outlook Web akan terbuka otomatis untuk diperiksa dan dikirim.</p>}

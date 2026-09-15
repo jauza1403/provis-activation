@@ -12,6 +12,7 @@ export const activationRequests = sqliteTable(
     vendorName: text("vendor_name").notNull(),
     accessMedia: text("access_media").notNull(),
     serviceType: text("service_type").notNull().default(""),
+    workType: text("work_type").notNull().default(""),
     isRelocation: integer("is_relocation", { mode: "boolean" }).notNull().default(false),
     isRelayout: integer("is_relayout", { mode: "boolean" }).notNull().default(false),
     customerName: text("customer_name").notNull().default(""),

@@ -226,6 +226,70 @@ export async function ensureUsersTableAndSeed(): Promise<void> {
   }
 }
 
+export async function ensureActivationRequestsTable(): Promise<void> {
+  try {
+    const db = getDb();
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS activation_requests (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        deadline TEXT NOT NULL,
+        activation_date TEXT NOT NULL,
+        time_slot TEXT NOT NULL,
+        area TEXT NOT NULL,
+        vendor_name TEXT NOT NULL,
+        access_media TEXT NOT NULL,
+        service_type TEXT NOT NULL DEFAULT '',
+        work_type TEXT NOT NULL DEFAULT '',
+        is_relocation INTEGER NOT NULL DEFAULT 0,
+        is_relayout INTEGER NOT NULL DEFAULT 0,
+        customer_name TEXT NOT NULL DEFAULT '',
+        site_id TEXT NOT NULL,
+        subs_id TEXT NOT NULL,
+        opp_number TEXT NOT NULL,
+        wo_number TEXT NOT NULL,
+        device_plan TEXT NOT NULL,
+        install_switch INTEGER NOT NULL DEFAULT 0,
+        switch_brand TEXT NOT NULL DEFAULT '',
+        vlan_switch TEXT NOT NULL DEFAULT '',
+        rfa_cores INTEGER NOT NULL,
+        pop_allocation TEXT NOT NULL,
+        pop_id TEXT NOT NULL DEFAULT '',
+        pop_name TEXT NOT NULL DEFAULT '',
+        cable_length TEXT NOT NULL DEFAULT '',
+        cable_type TEXT NOT NULL DEFAULT '',
+        fat_odp_code TEXT NOT NULL DEFAULT '',
+        end_to_end TEXT NOT NULL DEFAULT '',
+        attenuation TEXT NOT NULL DEFAULT '',
+        customer_port TEXT NOT NULL DEFAULT '',
+        pop_otb_port TEXT NOT NULL DEFAULT '',
+        bandwidth TEXT NOT NULL DEFAULT '',
+        project_pic TEXT NOT NULL,
+        vendor_pic TEXT NOT NULL,
+        provisioning_pic TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Submitted',
+        completed_at TEXT NOT NULL DEFAULT '',
+        pending_reason TEXT NOT NULL DEFAULT '',
+        request_type TEXT NOT NULL DEFAULT 'Regular',
+        approval_status TEXT NOT NULL DEFAULT 'Not Required',
+        approval_code TEXT NOT NULL DEFAULT '',
+        approved_at TEXT NOT NULL DEFAULT '',
+        whatsapp_message_id TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT ''
+      )
+    `);
+
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN work_type TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+
+    await db.run(sql`CREATE INDEX IF NOT EXISTS idx_activation_date_slot ON activation_requests (activation_date, time_slot)`);
+    await db.run(sql`CREATE INDEX IF NOT EXISTS idx_activation_status ON activation_requests (status)`);
+    await db.run(sql`CREATE INDEX IF NOT EXISTS idx_activation_pic ON activation_requests (provisioning_pic)`);
+    await db.run(sql`CREATE INDEX IF NOT EXISTS idx_activation_approval ON activation_requests (approval_status, approval_code)`);
+  } catch (err) {
+    console.warn("D1 activation_requests table init skipped:", err);
+  }
+}
+
 export async function authenticateUser(
   usernameInput: string,
   passwordInput: string,

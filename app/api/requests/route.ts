@@ -2,7 +2,7 @@ import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { activationRequests } from "@/db/schema";
-import { getSessionUser } from "@/lib/auth";
+import { ensureActivationRequestsTable, getSessionUser } from "@/lib/auth";
 
 import { candidateSlots, SLOT_CAPACITY } from "@/lib/scheduling";
 function capacity(date: string, slot: string, excludeId = "") {
@@ -15,6 +15,7 @@ const fullResponse = () => NextResponse.json({ error: "Slot yang dipilih dan slo
 const required = [
   "activationDate", "timeSlot", "area", "vendorName",
   "accessMedia", "serviceType", "customerName", "siteId", "subsId", "oppNumber", "woNumber",
+  "workType",
   "bandwidth", "devicePlan",
   "projectPic", "vendorPic", "provisioningPic",
 ] as const;
@@ -49,6 +50,7 @@ function slotStartMinutes(timeSlot: string) {
 
 export async function GET(request: Request) {
   try {
+    await ensureActivationRequestsTable();
     const user = await getSessionUser(request);
     if (!user) {
       return NextResponse.json(
@@ -87,6 +89,10 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({ requests: normalized });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Cloudflare D1 binding") || message.includes("DB is unavailable")) {
+      return NextResponse.json({ requests: [] }, { status: 200 });
+    }
     console.error("request-list-failed", error);
     return NextResponse.json(
       { error: "Data request belum dapat dimuat." },
@@ -97,6 +103,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    await ensureActivationRequestsTable();
     const user = await getSessionUser(request);
     if (!user) {
       return NextResponse.json(
@@ -141,6 +148,7 @@ export async function POST(request: Request) {
       vendorName: body.vendorName.trim(),
       accessMedia: body.accessMedia,
       serviceType: body.serviceType,
+      workType: String(body.workType ?? "").trim(),
       isRelocation: Boolean(body.isRelocation),
       isRelayout: Boolean(body.isRelayout),
       customerName: body.customerName.trim(),
@@ -199,6 +207,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    await ensureActivationRequestsTable();
     const user = await getSessionUser(request);
     if (!user) {
       return NextResponse.json(
@@ -262,7 +271,7 @@ export async function PATCH(request: Request) {
     for (const key of editable) {
       if (body[key] === undefined) continue;
       const value = String(body[key] ?? "").trim();
-      if (!["notes", "fatOdpCode"].includes(key) && !rfaFields.includes(key as typeof rfaFields[number]) && !value) {
+      if (!["notes", "fatOdpCode", "workType"].includes(key) && !rfaFields.includes(key as typeof rfaFields[number]) && !value) {
         return NextResponse.json({ error: "Mohon lengkapi seluruh data wajib." }, { status: 400 });
       }
       if (rfaFields.includes(key as typeof rfaFields[number]) && !skipsRfa && !value) {
@@ -308,6 +317,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    await ensureActivationRequestsTable();
     const user = await getSessionUser(request);
     if (!user) {
       return NextResponse.json(
