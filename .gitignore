@@ -44,3 +44,4 @@ next-env.d.ts
 /.codex/
 /outputs/
 /work/
+scripts/seed-demo-requests.mjs
