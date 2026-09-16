@@ -276,9 +276,12 @@ export async function ensureActivationRequestsTable(): Promise<void> {
         approval_code TEXT NOT NULL DEFAULT '',
         approved_at TEXT NOT NULL DEFAULT '',
         whatsapp_message_id TEXT NOT NULL DEFAULT '',
-        notes TEXT NOT NULL DEFAULT ''
+        notes TEXT NOT NULL DEFAULT '',
+        screenshot_url TEXT NOT NULL DEFAULT ''
       )
     `);
+
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN screenshot_url TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
 
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN work_type TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
 

@@ -326,6 +326,18 @@ td select { max-width: 190px; min-height: 36px; font-size: 12px; }
 .switch-install-control input { width:18px; height:18px; min-height:18px; padding:0; accent-color:#ff8a3d; }
 .switch-install-fields { display:grid; flex:1; grid-template-columns:minmax(150px,1fr) minmax(130px,.65fr); gap:10px; }
 .switch-install-fields input { width:100%; height:auto; min-height:42px; padding:0 12px; accent-color:auto; }
+.screenshot-upload { display:flex; flex-direction:column; gap:10px; }
+.screenshot-dropzone { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; min-height:160px; padding:22px; border:2px dashed #4b6d87; border-radius:14px; background:#0d1b28; color:#8fb0c9; text-align:center; cursor:pointer; transition:border-color .18s ease,background .18s ease,color .18s ease; }
+.screenshot-dropzone:hover { border-color:#63d5ef; background:#10283a; color:#d9f7ff; }
+.screenshot-dropzone b { color:#dcebf5; font-size:15px; }
+.screenshot-dropzone small { color:#7f94a6; font-size:12px; line-height:1.5; }
+.screenshot-dropzone input[type="file"] { position:absolute; inset:0; width:100%; height:100%; min-height:0; padding:0; opacity:0; cursor:pointer; border:none; background:transparent; }
+.screenshot-dropzone input[type="file"]:disabled { cursor:not-allowed; }
+.screenshot-error { color:#ff7b7b; font-size:12px; font-weight:600; }
+.screenshot-preview { display:flex; flex-direction:column; gap:10px; }
+.screenshot-preview img { max-width:100%; max-height:280px; border:1px solid #263b4e; border-radius:12px; background:#0d1b28; object-fit:contain; }
+.screenshot-preview .secondary-button { align-self:flex-start; }
+.detail-screenshot { max-width:100%; max-height:320px; border:1px solid #263b4e; border-radius:12px; object-fit:contain; cursor:zoom-in; }
 .icon-action.email { border-color:rgba(85,200,255,.25); background:rgba(85,200,255,.08); color:#88dfff; }
 .icon-action.email:hover { border-color:rgba(85,200,255,.48); background:rgba(85,200,255,.16); color:#d9f7ff; }
 .email-choice-dialog { border:1px solid rgba(255,255,255,.1)!important; background:#0a1927!important; color:#e8f1f8!important; }

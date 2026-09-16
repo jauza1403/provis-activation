@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ClipboardList,
   Clock3,
+  ImagePlus,
   KeyRound,
   LayoutDashboard,
   Lock,
@@ -107,6 +108,7 @@ type ActivationRequest = {
   approvedAt: string;
   whatsappMessageId: string;
   notes: string;
+  screenshotUrl: string;
 };
 
 type CurrentUser = {
@@ -375,6 +377,7 @@ const emptyForm = {
   vendorPic: "",
   provisioningPic: pics[0],
   notes: "",
+  screenshotUrl: "",
 };
 
 declare global {
@@ -838,6 +841,7 @@ export default function Home() {
       vendorPic: item.vendorPic,
       provisioningPic: item.provisioningPic,
       notes: item.notes,
+      screenshotUrl: item.screenshotUrl || "",
     });
     setSelectedRequest(null);
     setView("form");
@@ -1045,7 +1049,7 @@ export default function Home() {
                 className={`nav-button ${view === "completed" ? "active" : ""}`}
               >
                 <CheckCircle2 size={18} />
-                Selesai
+                Done Activation
                 {completedRequests.length > 0 && <span className="nav-count completed-count">{completedRequests.length}</span>}
               </button>
             </>
@@ -1298,6 +1302,10 @@ export default function Home() {
               onCancel={() => { setEditingId(null); setForm(emptyForm); setView("dashboard"); }}
               onSubmit={async () => {
                 if (busy) return;
+                if (view === "urgentForm" && !form.screenshotUrl) {
+                  setMessage("Mohon lampirkan screenshot untuk request urgent.");
+                  return;
+                }
                 setBusy(true);
                 setMessage("");
                 try {
@@ -2185,6 +2193,14 @@ function RequestDetail({
 
               <DetailSection title="Catatan">
                 <DetailItem label="Catatan Tambahan" value={request.notes || "-"} wide />
+                {request.screenshotUrl && (
+                  <div className="detail-item wide">
+                    <span>Screenshot Bukti</span>
+                    <a href={request.screenshotUrl} target="_blank" rel="noreferrer">
+                      <img src={request.screenshotUrl} alt="Screenshot bukti request" className="detail-screenshot" />
+                    </a>
+                  </div>
+                )}
               </DetailSection>
             </div>
           </>
@@ -2269,6 +2285,35 @@ function RequestForm({
   onCancel: () => void;
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [screenshotUploading, setScreenshotUploading] = useState(false);
+  const [screenshotError, setScreenshotError] = useState("");
+  const MAX_SCREENSHOT_BYTES = 20 * 1024 * 1024;
+  async function uploadScreenshot(file: File) {
+    setScreenshotError("");
+    if (!file.type.startsWith("image/")) {
+      setScreenshotError("File harus berupa gambar (screenshot).");
+      return;
+    }
+    if (file.size > MAX_SCREENSHOT_BYTES) {
+      setScreenshotError("Ukuran file maksimal 20MB.");
+      return;
+    }
+    setScreenshotUploading(true);
+    try {
+      const data = new FormData();
+      data.append("file", file);
+      const response = await fetch("/api/uploads", { method: "POST", body: data });
+      const result = (await response.json()) as any;
+      if (!response.ok) throw new Error(result.error || "Gambar gagal diunggah.");
+      setForm((current) => ({ ...current, screenshotUrl: result.url }));
+    } catch (error) {
+      setScreenshotError(
+        error instanceof Error ? error.message : "Gambar gagal diunggah.",
+      );
+    } finally {
+      setScreenshotUploading(false);
+    }
+  }
   const counts = Object.fromEntries(slots.map((slot) => [slot, requests.filter((item) => item.activationDate === form.activationDate && item.timeSlot === slot).length]));
   const effectiveSlot = form.activationDate ? candidateSlots(form.timeSlot).find((slot) => counts[slot] < SLOT_CAPACITY) ?? "" : form.timeSlot;
   const scheduleFull = Boolean(form.activationDate) && !effectiveSlot;
@@ -2599,6 +2644,47 @@ function RequestForm({
             )}
           </div>
         </FormSection>
+        {urgent && (
+          <FormSection number="05" title="Screenshot Bukti" icon={<ClipboardList size={18} />}>
+            <div className="form-grid">
+              <Field label="Screenshot Bukti Urgent" wide>
+                <div className="screenshot-upload">
+                  {form.screenshotUrl ? (
+                    <div className="screenshot-preview">
+                      <img src={form.screenshotUrl} alt="Screenshot bukti urgent" />
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={screenshotUploading}
+                        onClick={() => setForm((current) => ({ ...current, screenshotUrl: "" }))}
+                      >
+                        Hapus screenshot
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="screenshot-dropzone">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={screenshotUploading}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) uploadScreenshot(file);
+                          }}
+                        />
+                        <ImagePlus size={30} />
+                        <b>{screenshotUploading ? "Mengunggah gambar…" : "Klik untuk pilih screenshot"}</b>
+                        <small>Wajib untuk request urgent · format JPG/PNG · maksimal 20MB</small>
+                      </div>
+                    </>
+                  )}
+                  {screenshotError && <span className="screenshot-error">{screenshotError}</span>}
+                </div>
+              </Field>
+            </div>
+          </FormSection>
+        )}
         <div className="flex flex-wrap justify-end gap-3">
           {editing && (
             <button disabled={busy} className="secondary-button" type="button" onClick={onCancel}>
@@ -2606,7 +2692,7 @@ function RequestForm({
             </button>
           )}
           <button
-            disabled={busy || !form.activationDate || scheduleFull}
+            disabled={busy || screenshotUploading || !form.activationDate || scheduleFull}
             className="primary-button min-w-48"
             type="submit"
           >

@@ -49,6 +49,7 @@ export const activationRequests = sqliteTable(
     approvedAt: text("approved_at").notNull().default(""),
     whatsappMessageId: text("whatsapp_message_id").notNull().default(""),
     notes: text("notes").notNull().default(""),
+    screenshotUrl: text("screenshot_url").notNull().default(""),
   },
   (table) => [
     index("idx_activation_date_slot").on(table.activationDate, table.timeSlot),

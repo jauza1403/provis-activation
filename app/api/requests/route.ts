@@ -5,6 +5,7 @@ import { activationRequests } from "@/db/schema";
 import { ensureActivationRequestsTable, getSessionUser } from "@/lib/auth";
 
 import { candidateSlots, SLOT_CAPACITY } from "@/lib/scheduling";
+import { appendNewRequestToScheduleSheet } from "@/lib/google-sheets";
 function capacity(date: string, slot: string, excludeId = "") {
   return sql`(SELECT count(*) FROM activation_requests WHERE activation_date = ${date} AND time_slot = ${slot} AND id != ${excludeId}) < ${SLOT_CAPACITY}`;
 }
@@ -138,6 +139,13 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
+    const screenshotUrl = String(body.screenshotUrl ?? "").trim();
+    if (isUrgent && !screenshotUrl) {
+      return NextResponse.json(
+        { error: "Mohon lampirkan screenshot untuk request urgent." },
+        { status: 400 },
+      );
+    }
     const row = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -184,6 +192,7 @@ export async function POST(request: Request) {
       approvedAt: "",
       whatsappMessageId: "",
       notes: String(body.notes ?? "").trim(),
+      screenshotUrl,
     };
     const columns = getTableColumns(activationRequests);
     for (const slot of candidateSlots(row.timeSlot)) {
@@ -193,7 +202,12 @@ export async function POST(request: Request) {
       const values = sql.join(entries.map(([, value]) => sql`${typeof value === "boolean" ? Number(value) : value}`), sql`, `);
       // One statement makes capacity enforcement atomic across concurrent submissions.
       const inserted = await getDb().all(sql`INSERT INTO activation_requests (${names}) SELECT ${values} WHERE ${capacity(row.activationDate, slot)} RETURNING id`);
-      if (inserted.length) return NextResponse.json({ request: row }, { status: 201 });
+      if (inserted.length) {
+        await appendNewRequestToScheduleSheet(row).catch((error) => {
+          console.error("schedule-sheet-append-failed", error);
+        });
+        return NextResponse.json({ request: row }, { status: 201 });
+      }
     }
     return fullResponse();
   } catch (error) {
@@ -273,6 +287,7 @@ export async function PATCH(request: Request) {
     if (typeof body.pendingReason === "string") update.pendingReason = body.pendingReason.trim();
     if (body.provisioningPic) update.provisioningPic = body.provisioningPic;
     if (typeof body.notes === "string") update.notes = body.notes.trim();
+    if (typeof body.screenshotUrl === "string") update.screenshotUrl = body.screenshotUrl.trim();
     if (typeof body.isRelocation === "boolean") update.isRelocation = body.isRelocation;
     if (typeof body.isRelayout === "boolean") update.isRelayout = body.isRelayout;
     if (typeof body.installSwitch === "boolean") {
