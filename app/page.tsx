@@ -2558,13 +2558,14 @@ function RequestForm({
                 />
               </Field>
             )}
-            <Field label="Perangkat yang Dipasang" wide>
+            <Field label="Perangkat yang dipasang" wide>
               <textarea
                 required
                 rows={3}
                 placeholder="Contoh: SFP 10G 20 km, MC220, Router MikroTik…"
                 {...input("devicePlan")}
               />
+              <small className="text-xs text-slate-400 mt-1 block">Apabila memilih product Internet Service, harap mencantumkan nama router dan kebutuhannya.</small>
             </Field>
             <Field label="Additional Perangkat" wide>
               <div className="switch-install-control">
