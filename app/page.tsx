@@ -130,12 +130,32 @@ const pics = [
 ];
 
 const serviceTypes = [
-  "Internet",
-  "Leased-Line",
-  "IP-Transit",
-  "L3VPN MPLS",
-  "Leased-Line GCP",
-  "Leased-Line AWS",
+  "IP_LC - FO - Internet Service - IP Transit (NAP)",
+  "IP_LC - FO - Leased Line Service - IPLC",
+  "MWIFO - FO - Iforte Internet Connect - Fast Track",
+  "MWIFO - FO - Internet Service - Broadband Up To",
+  "MWIFO - FO - Internet Service - Dedicated",
+  "MWIFO - FO - Internet Service - Dedicated - SD-WAN",
+  "MWIFO - FO - Internet Service - IP Transit Non ISP",
+  "MWIFO - FO - Internet Service + WIFI",
+  "MWIFO - FO - Leased Line Service",
+  "MWIFO - FO - Leased Line Service - Clear Channel",
+  "MWIFO - FO - Leased Line Service - Dark Fiber",
+  "MWIFO - FO - Managed Service - Internet + Wifi Access Point",
+  "MWIFO - FO - Managed Service - L3VPN MPLS Solution",
+  "MWIFO - GSM - Internet Service - Dedicated - M2M",
+  "MWIFO - GSM - Leased Line Service - M2M",
+  "MWIFO - M2M - Managed Service - M2M",
+  "MWIFO - Wireless - BOD Internet Skyfiber",
+  "MWIFO - Wireless - Internet - Backup",
+  "MWIFO - Wireless - Internet - IP Transit Non ISP",
+  "MWIFO - Wireless - Internet Skyfiber",
+  "MWIFO - Wireless - Internet Skyfiber BW > 100 Mbps",
+  "MWIFO - Wireless - Leased Line Service",
+  "MWIFO - Wireless - Non Fasttrack Internet Skyfiber",
+  "MWIFO - Wireless Skyfiber + WIFI + Manage Svc",
+  "VSAT - VSAT - Internet Service - Dedicated",
+  "VSAT - VSAT - Managed Service - L3VPN MPLS Solution",
 ];
 const workTypes = [
   "Bandwidth on Demand Existing Site",
@@ -1993,9 +2013,9 @@ function RequestForm({
                 {...input("customerName")}
               />
             </Field>
-            <Field label="Service Type" wide>
+            <Field label="Product Type" wide>
               <select required {...input("serviceType")}>
-                <option value="" disabled>Pilih Service Type</option>
+                <option value="" disabled>Pilih Product Type</option>
                 {serviceTypes.map((service) => <option key={service}>{service}</option>)}
               </select>
             </Field>
