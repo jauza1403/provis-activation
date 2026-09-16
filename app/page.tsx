@@ -2214,7 +2214,7 @@ function RequestDetail({
                 <DetailItem label="Redaman" value={request.attenuation || "-"} />
                 <DetailItem label="End to End" value={request.endToEnd || "-"} wide />
                 <DetailItem label="IP" value={request.ipAddress || "-"} wide />
-                <DetailItem label="Perangkat yang Dipasang" value={request.devicePlan} wide />
+                <DetailItem label="Perangkat yang Dipasang (Kalau memilih product internet service, harap cantumkan router dan kebutuhan)" value={request.devicePlan} wide />
                 <DetailItem
                   label="Install Switch"
                   value={request.installSwitch ? `Ya · ${request.switchBrand} · VLAN ${request.vlanSwitch || "?"}` : "Tidak"}
