@@ -25,7 +25,7 @@ const rfaFields = [
   "attenuation", "customerPort", "popOtbPort",
 ] as const;
 
-const editable = [...required, ...rfaFields, "fatOdpCode", "notes"] as const;
+const editable = [...required, ...rfaFields, "fatOdpCode", "notes", "rescheduleReason", "picRescheduleReason"] as const;
 
 function createApprovalCode() {
   return `URG-${crypto.randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase()}`;
@@ -215,12 +215,6 @@ export async function PATCH(request: Request) {
         { status: 401 },
       );
     }
-    if (user.role === "vendor_user") {
-      return NextResponse.json(
-        { error: "Vendor tidak memiliki izin untuk mengubah data request." },
-        { status: 403 },
-      );
-    }
     const body = (await request.json()) as any;
     if (!body.id) {
       return NextResponse.json(
@@ -295,9 +289,26 @@ export async function PATCH(request: Request) {
     const db = getDb();
     const [current] = await db.select().from(activationRequests).where(eq(activationRequests.id, body.id));
     if (!current) return NextResponse.json({ error: "Request tidak ditemukan." }, { status: 404 });
+    if (user.role === "vendor_user") {
+      const vendor = user.vendorName.trim().toLowerCase();
+      const allowed = ["id", "status", "activationDate", "timeSlot", "pendingReason", "rescheduleReason"];
+      if (current.vendorName.trim().toLowerCase() !== vendor || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
+        return NextResponse.json({ error: "Vendor hanya dapat mengajukan reschedule untuk request miliknya." }, { status: 403 });
+      }
+    }
+    const isVendorReschedule = user.role === "vendor_user";
+    const isPicReschedule = !isVendorReschedule && body.status === "Pending" && typeof body.picRescheduleReason === "string";
     const date = String(update.activationDate ?? current.activationDate);
     const requestedSlot = String(update.timeSlot ?? current.timeSlot);
     if (!validSchedule(date, requestedSlot)) return NextResponse.json({ error: "Tanggal atau slot tidak valid." }, { status: 400 });
+    if (isPicReschedule) {
+      update.picRescheduleDate = date;
+      update.picRescheduleTimeSlot = requestedSlot;
+    }
+    if (isVendorReschedule) {
+      update.vendorRescheduleDate = date;
+      update.vendorRescheduleTimeSlot = requestedSlot;
+    }
     const changed = date !== current.activationDate || requestedSlot !== current.timeSlot;
     for (const slot of changed ? candidateSlots(requestedSlot) : [current.timeSlot]) {
       const [updated] = await db.update(activationRequests)

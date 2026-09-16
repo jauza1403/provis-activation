@@ -99,6 +99,12 @@ type ActivationRequest = {
   status: string;
   completedAt: string;
   pendingReason: string;
+  rescheduleReason: string;
+  picRescheduleReason: string;
+  picRescheduleDate: string;
+  picRescheduleTimeSlot: string;
+  vendorRescheduleDate: string;
+  vendorRescheduleTimeSlot: string;
   requestType: string;
   approvalStatus: string;
   approvalCode: string;
@@ -429,8 +435,13 @@ export default function Home() {
   const [deleteCompletedAllOpen, setDeleteCompletedAllOpen] = useState(false);
   const [rescheduleTarget, setRescheduleTarget] = useState<ActivationRequest | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleSlot, setRescheduleSlot] = useState(slots[0]);
+  const [rescheduleReason, setRescheduleReason] = useState("");
+  const [rescheduleMode, setRescheduleMode] = useState<"pic" | "vendor">("pic");
   const [switchEmailTarget, setSwitchEmailTarget] = useState<ActivationRequest | null>(null);
   const [pendingTarget, setPendingTarget] = useState<ActivationRequest | null>(null);
+  const [pendingDate, setPendingDate] = useState("");
+  const [pendingSlot, setPendingSlot] = useState(slots[0]);
   const [pendingReason, setPendingReason] = useState("");
   const [requestTypeDialog, setRequestTypeDialog] = useState(false);
   const [completedDateFilter, setCompletedDateFilter] = useState("all");
@@ -500,7 +511,7 @@ export default function Home() {
 
   // Enforce vendor view boundaries
   useEffect(() => {
-    if (currentUser?.role === "vendor_user" && ["urgent", "pending", "completed"].includes(view)) {
+    if (currentUser?.role === "vendor_user" && ["urgent", "completed"].includes(view)) {
       setView("dashboard");
     }
   }, [currentUser, view]);
@@ -661,6 +672,8 @@ export default function Home() {
   function changeStatus(item: ActivationRequest, status: string) {
     if (status === "Pending") {
       setPendingTarget(item);
+      setPendingDate(item.activationDate);
+      setPendingSlot(item.timeSlot);
       setPendingReason(item.pendingReason || "");
       return;
     }
@@ -671,13 +684,16 @@ export default function Home() {
     void updateRequest(item.id, "status", status);
   }
 
-  function openReschedule(item: ActivationRequest) {
+  function openReschedule(item: ActivationRequest, mode: "pic" | "vendor" = currentUser?.role === "vendor_user" ? "vendor" : "pic") {
     setRescheduleTarget(item);
-    setRescheduleDate(item.activationDate);
+    setRescheduleDate(mode === "vendor" ? item.vendorRescheduleDate || item.activationDate : item.picRescheduleDate || item.activationDate);
+    setRescheduleSlot(mode === "vendor" ? item.vendorRescheduleTimeSlot || item.timeSlot : item.picRescheduleTimeSlot || item.timeSlot);
+    setRescheduleReason(mode === "vendor" ? item.rescheduleReason || "" : item.picRescheduleReason || "");
+    setRescheduleMode(mode);
   }
 
   async function savePending() {
-    if (!pendingTarget || !pendingReason.trim()) return;
+    if (!pendingTarget || !pendingDate || !pendingSlot || !pendingReason.trim()) return;
     setBusy(true);
     try {
       const response = await fetch("/api/requests", {
@@ -686,6 +702,8 @@ export default function Home() {
         body: JSON.stringify({
           id: pendingTarget.id,
           status: "Pending",
+          activationDate: pendingDate,
+          timeSlot: pendingSlot,
           pendingReason: pendingReason.trim(),
         }),
       });
@@ -705,8 +723,8 @@ export default function Home() {
   }
 
   async function saveReschedule() {
-    if (!rescheduleTarget || !rescheduleDate) return;
-    const needsApproval = rescheduleTarget.approvalStatus === "Waiting Approval";
+    const vendorReschedule = rescheduleMode === "vendor";
+    if (!rescheduleTarget || !rescheduleDate || !rescheduleSlot || !rescheduleReason.trim()) return;
     setBusy(true);
     try {
       const response = await fetch("/api/requests", {
@@ -714,10 +732,11 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           id: rescheduleTarget.id,
-          status: "Reschedule",
+          status: vendorReschedule ? "Reschedule" : "Pending",
           activationDate: rescheduleDate,
-          pendingReason: "",
-          ...(needsApproval ? { approvalStatus: "Approved" } : {}),
+          timeSlot: rescheduleSlot,
+          pendingReason: vendorReschedule ? "" : rescheduleTarget.pendingReason,
+          ...(vendorReschedule ? { rescheduleReason: rescheduleReason.trim() } : { picRescheduleReason: rescheduleReason.trim() }),
         }),
       });
       const data = (await response.json()) as any;
@@ -727,7 +746,8 @@ export default function Home() {
       );
       setSelectedRequest((current) => current?.id === rescheduleTarget.id ? data.request : current);
       setRescheduleTarget(null);
-      setMessage("Jadwal aktivasi berhasil diubah.", "success");
+      setRescheduleReason("");
+      setMessage(vendorReschedule ? "Vendor Reschedule berhasil diajukan." : "PIC Reschedule berhasil disimpan.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Jadwal gagal diubah.");
     } finally {
@@ -1006,14 +1026,6 @@ export default function Home() {
                 {urgentRequests.length > 0 && <span className="nav-count urgent-count">{urgentRequests.length}</span>}
               </button>
               <button
-                onClick={() => { setView("pending"); setEditingId(null); setSelectedRequest(null); }}
-                className={`nav-button ${view === "pending" ? "active" : ""}`}
-              >
-                <CirclePause size={18} />
-                Pending
-                {pendingRequests.length > 0 && <span className="nav-count">{pendingRequests.length}</span>}
-              </button>
-              <button
                 onClick={() => { setView("completed"); setEditingId(null); setSelectedRequest(null); }}
                 className={`nav-button ${view === "completed" ? "active" : ""}`}
               >
@@ -1023,6 +1035,14 @@ export default function Home() {
               </button>
             </>
           )}
+          <button
+            onClick={() => { setView("pending"); setEditingId(null); setSelectedRequest(null); }}
+            className={`nav-button ${view === "pending" ? "active" : ""}`}
+          >
+            <CirclePause size={18} />
+            {currentUser?.role === "vendor_user" ? "Request for Reschedule" : "Pending"}
+            {pendingRequests.length > 0 && <span className="nav-count">{pendingRequests.length}</span>}
+          </button>
           <div className={`deadline-note mt-auto hidden lg:block ${pastCutoff ? "cutoff-active" : ""}`}>
             <span className="deadline-icon">{pastCutoff ? <ShieldAlert size={18} /> : <Clock3 size={18} />}</span>
             <b>{pastCutoff ? "Pengajuan reguler tutup" : "Pengajuan dibuka"}</b>
@@ -1211,6 +1231,11 @@ export default function Home() {
                           </td>
                           <td data-label="Aksi">
                             <div className="row-actions">
+                              {currentUser?.role === "vendor_user" && !["Completed", "Pending"].includes(item.status) && (
+                                <button type="button" className="icon-action edit" title="Ajukan reschedule" aria-label={`Ajukan reschedule ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); openReschedule(item); }}>
+                                  <CalendarClock size={15} />
+                                </button>
+                              )}
                               {item.installSwitch && (
                                 <button
                                   type="button"
@@ -1309,6 +1334,7 @@ export default function Home() {
               requests={pendingRequests}
               onOpen={setSelectedRequest}
               onReschedule={openReschedule}
+              vendorMode={currentUser?.role === "vendor_user"}
             />
           )}
         </section>
@@ -1441,10 +1467,10 @@ export default function Home() {
       <Dialog open={Boolean(rescheduleTarget)} onOpenChange={(open) => !open && setRescheduleTarget(null)}>
         <DialogContent className="reschedule-dialog">
           <DialogHeader>
-            <DialogTitle>Ganti Tanggal Aktivasi</DialogTitle>
+            <DialogTitle>{rescheduleMode === "vendor" ? "Vendor Reschedule" : "PIC Reschedule"}</DialogTitle>
             <DialogDescription>
               Tentukan tanggal aktivasi baru untuk {rescheduleTarget?.customerName || rescheduleTarget?.siteId}.
-              Time {rescheduleTarget?.timeSlot}; jika penuh, otomatis pindah ke slot berikutnya yang tersedia.
+              {rescheduleMode === "vendor" ? "Ajukan perubahan jadwal karena kendala vendor." : "Ubah jadwal langsung karena kendala internal PIC Provisioning."}
             </DialogDescription>
           </DialogHeader>
           <label className="reschedule-field">
@@ -1456,11 +1482,21 @@ export default function Home() {
               onChange={(event) => setRescheduleDate(event.target.value)}
             />
           </label>
+          <label className="reschedule-field">
+            <span>Time Aktivasi Baru</span>
+            <select value={rescheduleSlot} onChange={(event) => setRescheduleSlot(event.target.value)}>
+              {slots.map((slot) => <option key={slot}>{slot}</option>)}
+            </select>
+          </label>
+          <label className="reschedule-field">
+            <span>Reason</span>
+            <textarea rows={4} required placeholder={rescheduleMode === "vendor" ? "Jelaskan kendala dari sisi vendor" : "Contoh: device belum siap atau konflik jadwal PIC"} value={rescheduleReason} onChange={(event) => setRescheduleReason(event.target.value)} />
+          </label>
           <DialogFooter>
             <button type="button" className="secondary-button" disabled={busy} onClick={() => setRescheduleTarget(null)}>
               Batal
             </button>
-            <button type="button" className="primary-button" disabled={busy || !rescheduleDate} onClick={() => void saveReschedule()}>
+            <button type="button" className="primary-button" disabled={busy || !rescheduleDate || !rescheduleSlot || !rescheduleReason.trim()} onClick={() => void saveReschedule()}>
               {busy ? "Menyimpan…" : "Simpan Jadwal Baru"}
             </button>
           </DialogFooter>
@@ -1475,6 +1511,16 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
           <label className="reschedule-field">
+            <span>Usulan Tanggal Aktivasi</span>
+            <input type="date" required value={pendingDate} onChange={(event) => setPendingDate(event.target.value)} />
+          </label>
+          <label className="reschedule-field">
+            <span>Usulan Time</span>
+            <select value={pendingSlot} onChange={(event) => setPendingSlot(event.target.value)}>
+              {slots.map((slot) => <option key={slot}>{slot}</option>)}
+            </select>
+          </label>
+          <label className="reschedule-field">
             <span>Reason Pending</span>
             <textarea
               rows={4}
@@ -1488,7 +1534,7 @@ export default function Home() {
             <button type="button" className="secondary-button" disabled={busy} onClick={() => setPendingTarget(null)}>
               Batal
             </button>
-            <button type="button" className="primary-button" disabled={busy || !pendingReason.trim()} onClick={savePending}>
+            <button type="button" className="primary-button" disabled={busy || !pendingDate || !pendingSlot || !pendingReason.trim()} onClick={savePending}>
               {busy ? "Menyimpan…" : "Simpan Pending"}
             </button>
           </DialogFooter>
@@ -1612,10 +1658,12 @@ function PendingList({
   requests,
   onOpen,
   onReschedule,
+  vendorMode = false,
 }: {
   requests: ActivationRequest[];
   onOpen: (request: ActivationRequest) => void;
   onReschedule: (request: ActivationRequest) => void;
+  vendorMode?: boolean;
 }) {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1677,12 +1725,8 @@ function PendingList({
                   <td data-label="Reason Pending"><span className="pending-reason">{item.pendingReason || "-"}</span></td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
                   <td data-label="Tindakan">
-                    <button
-                      type="button"
-                      className="reschedule-button"
-                      onClick={(event) => { event.stopPropagation(); onReschedule(item); }}
-                    >
-                      <CalendarClock size={16} /> Jadwalkan Kembali
+                    <button type="button" className="reschedule-button" onClick={(event) => { event.stopPropagation(); onReschedule(item); }}>
+                      <CalendarClock size={16} /> {vendorMode ? "Vendor Reschedule" : "PIC Reschedule"}
                     </button>
                   </td>
                 </tr>
@@ -1828,6 +1872,18 @@ function RequestDetail({
                 )}
                 {request.status === "Pending" && (
                   <DetailItem label="Reason Pending" value={request.pendingReason || "-"} wide />
+                )}
+                {request.status === "Reschedule" && (
+                  <DetailItem label="Reason Reschedule" value={request.rescheduleReason || "-"} wide />
+                )}
+                {request.picRescheduleReason && (
+                  <DetailItem label="Reason PIC Reschedule" value={request.picRescheduleReason} wide />
+                )}
+                {request.picRescheduleDate && (
+                  <DetailItem label="Jadwal PIC Reschedule" value={`${formatActivationDate(request.picRescheduleDate)} · ${request.picRescheduleTimeSlot}`} wide />
+                )}
+                {request.vendorRescheduleDate && (
+                  <DetailItem label="Jadwal Vendor Reschedule" value={`${formatActivationDate(request.vendorRescheduleDate)} · ${request.vendorRescheduleTimeSlot}`} wide />
                 )}
                 {request.requestType === "Urgent" && (
                   <>
