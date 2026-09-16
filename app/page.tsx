@@ -1617,6 +1617,17 @@ function PendingList({
   onOpen: (request: ActivationRequest) => void;
   onReschedule: (request: ActivationRequest) => void;
 }) {
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setSearchQuery(searchInput.trim().toLowerCase()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [searchInput]);
+  const filteredRequests = useMemo(() => requests.filter((item) => (
+    `${item.customerName} ${item.siteId} ${item.subsId} ${item.woNumber} ${item.vendorName} ${item.provisioningPic} ${item.workType}`
+      .toLowerCase()
+      .includes(searchQuery)
+  )), [requests, searchQuery]);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -1630,6 +1641,16 @@ function PendingList({
             <b className="text-sm text-white">Semua status Pending</b>
             <span className="mt-1 block text-xs text-slate-500">{requests.length} request menunggu tindak lanjut</span>
           </div>
+          <label className="search-box pending-search">
+            <Search size={17} />
+            <input
+              type="search"
+              placeholder="Cari customer, site ID, WO, vendor, Work Type…"
+              aria-label="Cari request pending"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+            />
+          </label>
         </div>
         <div className="overflow-x-auto">
           <table className="pending-table">
@@ -1643,7 +1664,7 @@ function PendingList({
               </tr>
             </thead>
             <tbody>
-              {requests.map((item) => (
+              {filteredRequests.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
                   <td data-label="Customer">
                     <button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button>
@@ -1669,11 +1690,11 @@ function PendingList({
             </tbody>
           </table>
         </div>
-        {!requests.length && (
+        {!filteredRequests.length && (
           <div className="empty-state">
             <span><CheckCircle2 size={24} /></span>
-            <b>Tidak ada request Pending</b>
-            <p>Semua request sudah memiliki jadwal tindak lanjut.</p>
+            <b>{requests.length ? "Request Pending tidak ditemukan" : "Tidak ada request Pending"}</b>
+            <p>{requests.length ? "Coba gunakan kata kunci lain." : "Semua request sudah memiliki jadwal tindak lanjut."}</p>
           </div>
         )}
       </div>
@@ -1933,11 +1954,17 @@ function RequestForm({
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const counts = Object.fromEntries(slots.map((slot) => [slot, requests.filter((item) => item.activationDate === form.activationDate && item.timeSlot === slot).length]));
+  const picCounts = Object.fromEntries(pics.map((pic) => [pic, requests.filter((item) => item.provisioningPic === pic && item.status !== "Completed").length]));
   const effectiveSlot = form.activationDate ? candidateSlots(form.timeSlot).find((slot) => counts[slot] < SLOT_CAPACITY) ?? "" : form.timeSlot;
   const scheduleFull = Boolean(form.activationDate) && !effectiveSlot;
   useEffect(() => {
     if (effectiveSlot && effectiveSlot !== form.timeSlot) setForm((current) => ({ ...current, timeSlot: effectiveSlot }));
-  }, [effectiveSlot, form.timeSlot, setForm]);
+    const currentPicCount = picCounts[form.provisioningPic] ?? 0;
+    if (currentPicCount >= 7) {
+      const nextPic = pics.find((pic) => (picCounts[pic] ?? 0) < 7);
+      if (nextPic) setForm((current) => ({ ...current, provisioningPic: nextPic }));
+    }
+  }, [effectiveSlot, form.timeSlot, form.provisioningPic, picCounts, setForm]);
   const input = (key: keyof typeof emptyForm) => ({
     value: (form[key] ?? "") as string | number,
     onChange: (
@@ -2083,7 +2110,9 @@ function RequestForm({
             <Field label="PIC Provisioning">
               <select {...input("provisioningPic")}>
                 {pics.map((pic) => (
-                  <option key={pic}>{pic}</option>
+                  <option key={pic} disabled={(picCounts[pic] ?? 0) >= 7}>
+                    {pic} ({picCounts[pic] ?? 0}/7)
+                  </option>
                 ))}
               </select>
             </Field>
