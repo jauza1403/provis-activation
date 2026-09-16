@@ -1,11 +1,21 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { activationRequests } from "@/db/schema";
+import { ensureActivationRequestsTable, getSessionUser } from "@/lib/auth";
 
+import { candidateSlots, SLOT_CAPACITY } from "@/lib/scheduling";
+function capacity(date: string, slot: string, excludeId = "") {
+  return sql`(SELECT count(*) FROM activation_requests WHERE activation_date = ${date} AND time_slot = ${slot} AND id != ${excludeId}) < ${SLOT_CAPACITY}`;
+}
+function validSchedule(date: string, slot: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date && candidateSlots(slot).length > 0;
+}
+const fullResponse = () => NextResponse.json({ error: "Slot yang dipilih dan slot berikutnya penuh. Pilih slot sebelumnya atau tanggal lain." }, { status: 409 });
 const required = [
   "activationDate", "timeSlot", "area", "vendorName",
   "accessMedia", "serviceType", "customerName", "siteId", "subsId", "oppNumber", "woNumber",
+  "workType",
   "bandwidth", "devicePlan",
   "projectPic", "vendorPic", "provisioningPic",
 ] as const;
@@ -31,19 +41,32 @@ function getWibClock(date = new Date()) {
 }
 
 const allowedStatus = ["Idle", "On Progress", "Completed", "Reschedule", "Pending"];
+const CUTOFF_HOUR = 17;
 
 function slotStartMinutes(timeSlot: string) {
   const match = timeSlot.match(/^(\d{2})\.(\d{2})/);
   return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    await ensureActivationRequestsTable();
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Sesi telah berakhir. Silakan login kembali." },
+        { status: 401 },
+      );
+    }
     const db = getDb();
-    const rows = await db
+    let rows = await db
       .select()
       .from(activationRequests)
       .orderBy(desc(activationRequests.createdAt));
+    if (user.role === "vendor_user" && user.vendorName.trim()) {
+      const vendor = user.vendorName.trim().toLowerCase();
+      rows = rows.filter((row) => row.vendorName.trim().toLowerCase() === vendor);
+    }
     const now = getWibClock();
     const nowMinutes = now.hour * 60 + now.minute;
     const normalized = rows.map((row) => {
@@ -66,6 +89,10 @@ export async function GET() {
     }
     return NextResponse.json({ requests: normalized });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Cloudflare D1 binding") || message.includes("DB is unavailable")) {
+      return NextResponse.json({ requests: [] }, { status: 200 });
+    }
     console.error("request-list-failed", error);
     return NextResponse.json(
       { error: "Data request belum dapat dimuat." },
@@ -76,8 +103,16 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    await ensureActivationRequestsTable();
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Sesi telah berakhir. Silakan login kembali." },
+        { status: 401 },
+      );
+    }
     const wibNow = getWibClock();
-    const body = await request.json();
+    const body = (await request.json()) as any;
     const missing = required.find((key) => !String(body[key] ?? "").trim());
     const needsRfa = !["Interkoneksi", "Existing Link"].includes(body.accessMedia);
     const missingRfa = needsRfa && rfaFields.find((key) => !String(body[key] ?? "").trim());
@@ -95,7 +130,14 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    if (!validSchedule(body.activationDate, body.timeSlot)) return NextResponse.json({ error: "Tanggal atau slot tidak valid." }, { status: 400 });
     const isUrgent = body.requestType === "Urgent";
+    if (!isUrgent && wibNow.hour >= CUTOFF_HOUR) {
+      return NextResponse.json(
+        { error: "Pengajuan request reguler sudah tutup (setelah pukul 17:00 WIB). Gunakan Request Urgent." },
+        { status: 403 },
+      );
+    }
     const row = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -106,6 +148,7 @@ export async function POST(request: Request) {
       vendorName: body.vendorName.trim(),
       accessMedia: body.accessMedia,
       serviceType: body.serviceType,
+      workType: String(body.workType ?? "").trim(),
       isRelocation: Boolean(body.isRelocation),
       isRelayout: Boolean(body.isRelayout),
       customerName: body.customerName.trim(),
@@ -142,8 +185,17 @@ export async function POST(request: Request) {
       whatsappMessageId: "",
       notes: String(body.notes ?? "").trim(),
     };
-    await getDb().insert(activationRequests).values(row);
-    return NextResponse.json({ request: row }, { status: 201 });
+    const columns = getTableColumns(activationRequests);
+    for (const slot of candidateSlots(row.timeSlot)) {
+      row.timeSlot = slot;
+      const entries = Object.entries(row) as [keyof typeof row, string | number | boolean][];
+      const names = sql.join(entries.map(([key]) => sql.identifier(columns[key].name)), sql`, `);
+      const values = sql.join(entries.map(([, value]) => sql`${typeof value === "boolean" ? Number(value) : value}`), sql`, `);
+      // One statement makes capacity enforcement atomic across concurrent submissions.
+      const inserted = await getDb().all(sql`INSERT INTO activation_requests (${names}) SELECT ${values} WHERE ${capacity(row.activationDate, slot)} RETURNING id`);
+      if (inserted.length) return NextResponse.json({ request: row }, { status: 201 });
+    }
+    return fullResponse();
   } catch (error) {
     console.error("request-create-failed", error);
     return NextResponse.json(
@@ -155,7 +207,21 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json();
+    await ensureActivationRequestsTable();
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Sesi telah berakhir. Silakan login kembali." },
+        { status: 401 },
+      );
+    }
+    if (user.role === "vendor_user") {
+      return NextResponse.json(
+        { error: "Vendor tidak memiliki izin untuk mengubah data request." },
+        { status: 403 },
+      );
+    }
+    const body = (await request.json()) as any;
     if (!body.id) {
       return NextResponse.json(
         { error: "ID request tidak ditemukan." },
@@ -167,6 +233,17 @@ export async function PATCH(request: Request) {
     }
     if (body.approvalStatus && !["Waiting Approval", "Approved", "Not Required"].includes(body.approvalStatus)) {
       return NextResponse.json({ error: "Status approval tidak valid." }, { status: 400 });
+    }
+    if (body.approvalStatus === "Approved") {
+      if (user.role !== "superuser") {
+        return NextResponse.json(
+          { error: "Akses ditolak. Hanya Superuser yang dapat menyetujui request urgent." },
+          { status: 403 },
+        );
+      }
+      console.info(
+        `[AUDIT] Urgent request ${body.id} approved by Superuser: ${user.username} (${user.name}) at ${new Date().toISOString()}`,
+      );
     }
     const update: Record<string, string | number | boolean> = {};
     if (body.status) {
@@ -194,7 +271,7 @@ export async function PATCH(request: Request) {
     for (const key of editable) {
       if (body[key] === undefined) continue;
       const value = String(body[key] ?? "").trim();
-      if (!["notes", "fatOdpCode"].includes(key) && !rfaFields.includes(key as typeof rfaFields[number]) && !value) {
+      if (!["notes", "fatOdpCode", "workType"].includes(key) && !rfaFields.includes(key as typeof rfaFields[number]) && !value) {
         return NextResponse.json({ error: "Mohon lengkapi seluruh data wajib." }, { status: 400 });
       }
       if (rfaFields.includes(key as typeof rfaFields[number]) && !skipsRfa && !value) {
@@ -215,15 +292,20 @@ export async function PATCH(request: Request) {
     if (!Object.keys(update).length) {
       return NextResponse.json({ error: "Tidak ada perubahan untuk disimpan." }, { status: 400 });
     }
-    await getDb()
-      .update(activationRequests)
-      .set(update)
-      .where(eq(activationRequests.id, body.id));
-    const [updated] = await getDb()
-      .select()
-      .from(activationRequests)
-      .where(eq(activationRequests.id, body.id));
-    return NextResponse.json({ request: updated });
+    const db = getDb();
+    const [current] = await db.select().from(activationRequests).where(eq(activationRequests.id, body.id));
+    if (!current) return NextResponse.json({ error: "Request tidak ditemukan." }, { status: 404 });
+    const date = String(update.activationDate ?? current.activationDate);
+    const requestedSlot = String(update.timeSlot ?? current.timeSlot);
+    if (!validSchedule(date, requestedSlot)) return NextResponse.json({ error: "Tanggal atau slot tidak valid." }, { status: 400 });
+    const changed = date !== current.activationDate || requestedSlot !== current.timeSlot;
+    for (const slot of changed ? candidateSlots(requestedSlot) : [current.timeSlot]) {
+      const [updated] = await db.update(activationRequests)
+        .set(changed ? { ...update, timeSlot: slot } : update)
+        .where(and(eq(activationRequests.id, body.id), changed ? capacity(date, slot, body.id) : undefined)).returning();
+      if (updated) return NextResponse.json({ request: updated });
+    }
+    return fullResponse();
   } catch (error) {
     console.error("request-update-failed", error);
     return NextResponse.json(
@@ -235,7 +317,21 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const body = await request.json();
+    await ensureActivationRequestsTable();
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Sesi telah berakhir. Silakan login kembali." },
+        { status: 401 },
+      );
+    }
+    if (user.role === "vendor_user") {
+      return NextResponse.json(
+        { error: "Vendor tidak memiliki izin untuk menghapus data request." },
+        { status: 403 },
+      );
+    }
+    const body = (await request.json()) as any;
     if (!body.id) {
       return NextResponse.json({ error: "ID request tidak ditemukan." }, { status: 400 });
     }

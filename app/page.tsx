@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { slots, SLOT_CAPACITY, candidateSlots } from "@/lib/scheduling";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -11,7 +14,10 @@ import {
   ChevronRight,
   ClipboardList,
   Clock3,
+  KeyRound,
   LayoutDashboard,
+  Lock,
+  LogOut,
   Mail,
   Pencil,
   Plus,
@@ -21,6 +27,7 @@ import {
   RadioTower,
   Search,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -62,6 +69,7 @@ type ActivationRequest = {
   vendorName: string;
   accessMedia: string;
   serviceType: string;
+  workType: string;
   isRelocation: boolean;
   isRelayout: boolean;
   customerName: string;
@@ -99,6 +107,14 @@ type ActivationRequest = {
   notes: string;
 };
 
+type CurrentUser = {
+  id: string;
+  username: string;
+  name: string;
+  role: "superuser" | "project_user" | "vendor_user";
+  vendorName: string;
+};
+
 const pics = [
   "Agus Wibowo",
   "Fahmi Anshori",
@@ -112,19 +128,52 @@ const pics = [
   "Devri Damara",
   "Andika Sukmawan",
 ];
-const slots = [
-  "08.00–10.00 WIB",
-  "10.00–12.00 WIB",
-  "13.00–15.00 WIB",
-  "15.00–17.00 WIB",
-];
+
 const serviceTypes = [
-  "Internet",
-  "Leased-Line",
-  "IP-Transit",
-  "L3VPN MPLS",
-  "Leased-Line GCP",
-  "Leased-Line AWS",
+  "IP_LC - FO - Internet Service - IP Transit (NAP)",
+  "IP_LC - FO - Leased Line Service - IPLC",
+  "MWIFO - FO - Iforte Internet Connect - Fast Track",
+  "MWIFO - FO - Internet Service - Broadband Up To",
+  "MWIFO - FO - Internet Service - Dedicated",
+  "MWIFO - FO - Internet Service - Dedicated - SD-WAN",
+  "MWIFO - FO - Internet Service - IP Transit Non ISP",
+  "MWIFO - FO - Internet Service + WIFI",
+  "MWIFO - FO - Leased Line Service",
+  "MWIFO - FO - Leased Line Service - Clear Channel",
+  "MWIFO - FO - Leased Line Service - Dark Fiber",
+  "MWIFO - FO - Managed Service - Internet + Wifi Access Point",
+  "MWIFO - FO - Managed Service - L3VPN MPLS Solution",
+  "MWIFO - GSM - Internet Service - Dedicated - M2M",
+  "MWIFO - GSM - Leased Line Service - M2M",
+  "MWIFO - M2M - Managed Service - M2M",
+  "MWIFO - Wireless - BOD Internet Skyfiber",
+  "MWIFO - Wireless - Internet - Backup",
+  "MWIFO - Wireless - Internet - IP Transit Non ISP",
+  "MWIFO - Wireless - Internet Skyfiber",
+  "MWIFO - Wireless - Internet Skyfiber BW > 100 Mbps",
+  "MWIFO - Wireless - Leased Line Service",
+  "MWIFO - Wireless - Non Fasttrack Internet Skyfiber",
+  "MWIFO - Wireless Skyfiber + WIFI + Manage Svc",
+  "VSAT - VSAT - Internet Service - Dedicated",
+  "VSAT - VSAT - Managed Service - L3VPN MPLS Solution",
+];
+const workTypes = [
+  "Bandwidth on Demand Existing Site",
+  "Bandwidth on Demand Existing Site with New Equipment",
+  "Bandwidth on Demand New Site",
+  "Change Media/Service",
+  "Dismantle Old Site",
+  "Downgrade",
+  "Isolate",
+  "New Installation",
+  "New Installation with Additional Service",
+  "Relayout",
+  "Relocation",
+  "Relocation (Activate with New Equipment)",
+  "Renewal Bandwidth With Equipment",
+  "Resume",
+  "Upgrade Bandwidth",
+  "Upgrade Equipment with BW",
 ];
 const switchBrands = ["Huawei", "H3C", "Raisecom", "Cisco"];
 const switchEmailTo = [
@@ -221,10 +270,25 @@ function buildSwitchEmail(request: ActivationRequest) {
     `- VLAN Switch: ${request.vlanSwitch || "?"}`,
     "- IP Switch: ?",
     "- Terminasi:",
+    `- Merek Switch: ${request.switchBrand || "-"}`,
+    "",
+    `Tanggal Aktivasi: ${request.activationDate}`,
+    `Time: ${request.timeSlot}`,
+    `Project PIC: ${request.projectPic}`,
+    `Vendor PIC: ${request.vendorPic}`,
+    `Provisioning PIC: ${request.provisioningPic}`,
     "",
     "Demikian yang dapat kami sampaikan. Terima kasih atas perhatian dan kerja samanya.",
   ].join("\n");
   return { subject, body };
+}
+
+function switchWebDraftUrl(request: ActivationRequest) {
+  const { subject, body } = buildSwitchEmail(request);
+  const to = switchEmailTo.join(",");
+  const cc = switchEmailCc.join(",");
+  const mailto = `mailto:${to}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  return `https://outlook.office.com/mail/deeplink/compose?mailtouri=${encodeURIComponent(mailto)}`;
 }
 
 function escapeEmailHtml(value: string) {
@@ -299,8 +363,9 @@ const emptyForm = {
   timeSlot: slots[0],
   area: "",
   vendorName: "",
-  accessMedia: "Metro",
+  accessMedia: "METRO",
   serviceType: "",
+  workType: "",
   isRelocation: false,
   isRelayout: false,
   customerName: "",
@@ -340,14 +405,23 @@ declare global {
   }
 }
 
+const CUTOFF_HOUR = 17;
+
 export default function Home() {
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<"dashboard" | "form" | "urgentForm" | "urgent" | "pending" | "completed">("dashboard");
   const [requests, setRequests] = useState<ActivationRequest[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua status");
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessageText] = useState("");
+  const [messageKind, setMessageKind] = useState<"success" | "error">("error");
+  function setMessage(text: string, kind: "success" | "error" = "error") {
+    setMessageText(text);
+    setMessageKind(kind);
+  }
   const [selectedRequest, setSelectedRequest] =
     useState<ActivationRequest | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -361,20 +435,75 @@ export default function Home() {
   const [requestTypeDialog, setRequestTypeDialog] = useState(false);
   const [completedDateFilter, setCompletedDateFilter] = useState("all");
 
+  // 17:00 WIB cutoff — refreshed every minute
+  const [pastCutoff, setPastCutoff] = useState(() => getWibClock().hour >= CUTOFF_HOUR);
+  useEffect(() => {
+    const tick = () => setPastCutoff(getWibClock().hour >= CUTOFF_HOUR);
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   async function load() {
     const response = await fetch("/api/requests", { cache: "no-store" });
-    const data = await response.json();
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
+    if (response.status === 503) {
+      setRequests([]);
+      return;
+    }
+    const data = (await response.json()) as any;
     if (!response.ok) throw new Error(data.error);
     setRequests(data.requests ?? []);
   }
 
   useEffect(() => {
-    load().catch(() => setMessage("Data monitoring belum dapat dimuat."));
+    async function initAuth() {
+      try {
+        const res = await fetch("/api/auth");
+        if (!res.ok) {
+          window.location.href = "/login";
+          return;
+        }
+        const data = (await res.json()) as any;
+        if (!data.user) {
+          window.location.href = "/login";
+          return;
+        }
+        setCurrentUser(data.user);
+        setAuthLoading(false);
+        await load();
+      } catch {
+        window.location.href = "/login";
+      }
+    }
+    initAuth();
+
     const timer = window.setInterval(() => {
       load().catch(() => undefined);
     }, 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "logout" }),
+      });
+    } finally {
+      window.location.href = "/login";
+    }
+  }
+
+  // Enforce vendor view boundaries
+  useEffect(() => {
+    if (currentUser?.role === "vendor_user" && ["urgent", "pending", "completed"].includes(view)) {
+      setView("dashboard");
+    }
+  }, [currentUser, view]);
 
   async function submit(payload = form, urgent = false) {
     const response = await fetch("/api/requests", {
@@ -382,7 +511,7 @@ export default function Home() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(editingId ? { id: editingId, ...payload } : { ...payload, requestType: urgent ? "Urgent" : "Regular" }),
     });
-    const data = await response.json();
+    const data = (await response.json()) as any;
     if (!response.ok) throw new Error(data.error);
     setRequests((current) =>
       editingId
@@ -394,11 +523,14 @@ export default function Home() {
     setEditingId(null);
     setView("dashboard");
     setMessage(
-      wasEditing
+      data.request.timeSlot !== payload.timeSlot
+        ? `Request tersimpan di ${data.request.timeSlot} karena slot sebelumnya penuh.`
+        : wasEditing
         ? "Perubahan request berhasil disimpan."
         : urgent
           ? `Request urgent ${data.request.approvalCode} tersimpan dan menunggu approval.`
           : "Request aktivasi berhasil dikirim.",
+      "success",
     );
     return data.request as ActivationRequest;
   }
@@ -419,8 +551,9 @@ export default function Home() {
           timeSlot: { type: "string", enum: slots },
           area: { type: "string" },
           vendorName: { type: "string" },
-          accessMedia: { type: "string", enum: ["GPON", "Metro", "Interkoneksi", "Existing Link"] },
+          accessMedia: { type: "string", enum: ["GPON", "Interkoneksi", "Existing Link", "DWDM", "M2M", "METRO", "SDWAN", "Skyfiber", "UTP", "VSAT", "Wireless"] },
           serviceType: { type: "string", enum: serviceTypes },
+          workType: { type: "string", enum: workTypes },
           isRelocation: { type: "boolean" },
           isRelayout: { type: "boolean" },
           customerName: { type: "string" },
@@ -455,6 +588,7 @@ export default function Home() {
           "vendorName",
           "accessMedia",
           "serviceType",
+          "workType",
           "customerName",
           "siteId",
           "subsId",
@@ -555,14 +689,14 @@ export default function Home() {
           pendingReason: pendingReason.trim(),
         }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as any;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) =>
         current.map((item) => item.id === pendingTarget.id ? data.request : item),
       );
       setSelectedRequest(null);
       setPendingTarget(null);
-      setMessage("Request dipindahkan ke Daftar Pending.");
+      setMessage("Request dipindahkan ke Daftar Pending.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Status Pending gagal disimpan.");
     } finally {
@@ -572,6 +706,7 @@ export default function Home() {
 
   async function saveReschedule() {
     if (!rescheduleTarget || !rescheduleDate) return;
+    const needsApproval = rescheduleTarget.approvalStatus === "Waiting Approval";
     setBusy(true);
     try {
       const response = await fetch("/api/requests", {
@@ -582,17 +717,17 @@ export default function Home() {
           status: "Reschedule",
           activationDate: rescheduleDate,
           pendingReason: "",
-          ...(rescheduleTarget.approvalStatus === "Waiting Approval" ? { approvalStatus: "Approved" } : {}),
+          ...(needsApproval ? { approvalStatus: "Approved" } : {}),
         }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as any;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) =>
         current.map((item) => item.id === rescheduleTarget.id ? data.request : item),
       );
       setSelectedRequest((current) => current?.id === rescheduleTarget.id ? data.request : current);
       setRescheduleTarget(null);
-      setMessage("Jadwal aktivasi berhasil diubah.");
+      setMessage("Jadwal aktivasi berhasil diubah.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Jadwal gagal diubah.");
     } finally {
@@ -601,6 +736,10 @@ export default function Home() {
   }
 
   async function approveUrgent(item: ActivationRequest) {
+    if (currentUser?.role !== "superuser") {
+      setMessage("Hanya Superuser yang dapat menyetujui request urgent.");
+      return;
+    }
     setBusy(true);
     try {
       const response = await fetch("/api/requests", {
@@ -613,11 +752,11 @@ export default function Home() {
           status: "On Progress",
         }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as any;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) => current.map((request) => request.id === item.id ? data.request : request));
       setSelectedRequest(null);
-      setMessage(`${item.approvalCode} disetujui dan masuk jadwal aktivasi hari ini.`);
+      setMessage(`Request urgent ${item.approvalCode} berhasil disetujui.`, "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Approval urgent gagal disimpan.");
     } finally {
@@ -626,6 +765,10 @@ export default function Home() {
   }
 
   function openNewRequest() {
+    if (pastCutoff) {
+      setMessage("Pengajuan request reguler sudah tutup setelah pukul 17:00 WIB. Silakan ajukan Request Urgent.");
+      return;
+    }
     setEditingId(null);
     setForm(emptyForm);
     setSelectedRequest(null);
@@ -640,6 +783,10 @@ export default function Home() {
   }
 
   function editRequest(item: ActivationRequest) {
+    if (currentUser?.role === "vendor_user") {
+      setMessage("Vendor tidak memiliki izin untuk mengedit request.");
+      return;
+    }
     setEditingId(item.id);
     setForm({
       deadline: item.deadline,
@@ -649,6 +796,7 @@ export default function Home() {
       vendorName: item.vendorName,
       accessMedia: item.accessMedia,
       serviceType: item.serviceType || "",
+      workType: item.workType || "",
       isRelocation: Boolean(item.isRelocation),
       isRelayout: Boolean(item.isRelayout),
       customerName: item.customerName,
@@ -689,12 +837,12 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: deleteTarget.id }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as any;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) => current.filter((item) => item.id !== deleteTarget.id));
       setSelectedRequest((current) => current?.id === deleteTarget.id ? null : current);
       setDeleteTarget(null);
-      setMessage("Request aktivasi berhasil dihapus.");
+      setMessage("Request aktivasi berhasil dihapus.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request gagal dihapus.");
     } finally {
@@ -722,6 +870,7 @@ export default function Home() {
         completedDateFilter === "all"
           ? "Semua data completed berhasil dihapus."
           : `Semua data completed tanggal ${formatActivationDate(completedDateFilter)} berhasil dihapus.`,
+        "success",
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Data completed gagal dihapus.");
@@ -748,6 +897,15 @@ export default function Home() {
   const pendingRequests = requests.filter((r) => r.status === "Pending");
   const urgentRequests = requests.filter((r) => r.approvalStatus === "Waiting Approval");
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400">
+        <div className="w-8 h-8 border-2 border-sky-400 border-t-transparent rounded-full animate-spin mb-3" />
+        <span className="text-xs font-medium tracking-wide">Memverifikasi sesi…</span>
+      </div>
+    );
+  }
+
   return (
     <main className="portal-shell min-h-screen text-slate-100">
       <header className="portal-header px-5 py-4 lg:px-10">
@@ -767,9 +925,46 @@ export default function Home() {
               <span className="text-xs text-slate-400">Activation Portal</span>
             </div>
           </div>
-          <div className="live-pill hidden sm:flex">
-            <span className="live-dot" />
-            Sistem online
+          <div className="flex items-center gap-3">
+            <div className="live-pill hidden sm:flex">
+              <span className="live-dot" />
+              Sistem online
+            </div>
+            {currentUser && (
+              <div className="user-profile-badge flex items-center gap-3 pl-3 border-l border-slate-800">
+                <div className="text-right hidden sm:block">
+                  <div className="text-xs font-semibold text-slate-200 leading-tight">
+                    {currentUser.name}
+                  </div>
+                  <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                    {currentUser.role === "superuser" && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                        SUPERUSER
+                      </span>
+                    )}
+                    {currentUser.role === "project_user" && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                        PROJECT USER
+                      </span>
+                    )}
+                    {currentUser.role === "vendor_user" && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        VENDOR USER
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  title="Keluar / Logout"
+                  className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/30 text-slate-400 border border-slate-800 text-xs font-medium transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150 active:scale-[.96] cursor-pointer"
+                >
+                  <LogOut size={15} />
+                  <span className="hidden md:inline">Keluar</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -782,13 +977,15 @@ export default function Home() {
             className={`nav-button ${view === "dashboard" ? "active" : ""}`}
           >
             <LayoutDashboard size={18} />
-            Dashboard
+            {currentUser?.role === "vendor_user" ? "Dashboard Saya" : "Dashboard"}
           </button>
           <button
             onClick={openNewRequest}
-            className={`nav-button ${view === "form" ? "active" : ""}`}
+            disabled={pastCutoff}
+            title={pastCutoff ? "Pengajuan reguler tutup pukul 17:00 WIB" : undefined}
+            className={`nav-button ${view === "form" ? "active" : ""} ${pastCutoff ? "disabled" : ""}`}
           >
-            <Plus size={18} />
+            {pastCutoff ? <Lock size={18} /> : <Plus size={18} />}
             Request Baru
           </button>
           <button
@@ -798,42 +995,46 @@ export default function Home() {
             <Flame size={18} />
             Request Urgent
           </button>
-          <button
-            onClick={() => { setView("urgent"); setEditingId(null); setSelectedRequest(null); }}
-            className={`nav-button ${view === "urgent" ? "active" : ""}`}
-          >
-            <MessageCircle size={18} />
-            Approval Urgent
-            {urgentRequests.length > 0 && <span className="nav-count urgent-count">{urgentRequests.length}</span>}
-          </button>
-          <button
-            onClick={() => { setView("pending"); setEditingId(null); setSelectedRequest(null); }}
-            className={`nav-button ${view === "pending" ? "active" : ""}`}
-          >
-            <CirclePause size={18} />
-            Pending
-            {pendingRequests.length > 0 && <span className="nav-count">{pendingRequests.length}</span>}
-          </button>
-          <button
-            onClick={() => { setView("completed"); setEditingId(null); setSelectedRequest(null); }}
-            className={`nav-button ${view === "completed" ? "active" : ""}`}
-          >
-            <CheckCircle2 size={18} />
-            Selesai
-            {completedRequests.length > 0 && <span className="nav-count completed-count">{completedRequests.length}</span>}
-          </button>
-          <div className="deadline-note mt-auto hidden lg:block">
-            <span className="deadline-icon"><Clock3 size={18} /></span>
-            <b>Pengajuan dibuka</b>
-            <p>Vendor dapat mengirim request aktivasi kapan saja.</p>
+          {currentUser?.role !== "vendor_user" && (
+            <>
+              <button
+                onClick={() => { setView("urgent"); setEditingId(null); setSelectedRequest(null); }}
+                className={`nav-button ${view === "urgent" ? "active" : ""}`}
+              >
+                <MessageCircle size={18} />
+                Approval Urgent
+                {urgentRequests.length > 0 && <span className="nav-count urgent-count">{urgentRequests.length}</span>}
+              </button>
+              <button
+                onClick={() => { setView("pending"); setEditingId(null); setSelectedRequest(null); }}
+                className={`nav-button ${view === "pending" ? "active" : ""}`}
+              >
+                <CirclePause size={18} />
+                Pending
+                {pendingRequests.length > 0 && <span className="nav-count">{pendingRequests.length}</span>}
+              </button>
+              <button
+                onClick={() => { setView("completed"); setEditingId(null); setSelectedRequest(null); }}
+                className={`nav-button ${view === "completed" ? "active" : ""}`}
+              >
+                <CheckCircle2 size={18} />
+                Selesai
+                {completedRequests.length > 0 && <span className="nav-count completed-count">{completedRequests.length}</span>}
+              </button>
+            </>
+          )}
+          <div className={`deadline-note mt-auto hidden lg:block ${pastCutoff ? "cutoff-active" : ""}`}>
+            <span className="deadline-icon">{pastCutoff ? <ShieldAlert size={18} /> : <Clock3 size={18} />}</span>
+            <b>{pastCutoff ? "Pengajuan reguler tutup" : "Pengajuan dibuka"}</b>
+            <p>{pastCutoff ? "Setelah pukul 17:00 WIB, gunakan Request Urgent." : "Request reguler dibuka sampai pukul 17:00 WIB."}</p>
           </div>
         </aside>
 
         <section>
           {message && (
-            <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
-              {message}
-              <button onClick={() => setMessage("")}>
+            <div role={messageKind === "error" ? "alert" : "status"} className={`portal-message portal-message-${messageKind}`}>
+              <span><strong>{messageKind === "error" ? "Perhatian: " : "Berhasil: "}</strong>{message}</span>
+              <button type="button" aria-label="Tutup pesan" onClick={() => setMessage("")}>
                 <X size={17} />
               </button>
             </div>
@@ -894,12 +1095,14 @@ export default function Home() {
                   <label className="search-box">
                     <Search size={17} />
                     <input
+                      aria-label="Cari request berdasarkan Site ID, Subs ID, WO atau vendor"
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="Cari Site ID, Subs ID, WO, vendor…"
                     />
                   </label>
                   <select
+                    aria-label="Filter status request"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                   >
@@ -915,7 +1118,7 @@ export default function Home() {
                       <tr>
                         <th>Customer</th>
                         <th>Jadwal Aktivasi</th>
-                        <th>Timeslot</th>
+                        <th>Time</th>
                         <th>Area & Vendor</th>
                         <th>Media</th>
                         <th>PIC Provisioning</th>
@@ -947,7 +1150,7 @@ export default function Home() {
                           <td data-label="Jadwal Aktivasi">
                             <b className="capitalize">{formatActivationDate(item.activationDate)}</b>
                           </td>
-                          <td data-label="Timeslot">
+                          <td data-label="Time">
                             <span className="timeslot-badge"><Clock3 size={14} /> {item.timeSlot}</span>
                           </td>
                           <td data-label="Area & Vendor">
@@ -963,35 +1166,47 @@ export default function Home() {
                             )}
                           </td>
                           <td data-label="PIC Provisioning">
-                            <select
-                              value={item.provisioningPic}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={(e) =>
-                                updateRequest(
-                                  item.id,
-                                  "provisioningPic",
-                                  e.target.value,
-                                )
-                              }
-                            >
-                              {pics.map((pic) => (
-                                <option key={pic}>{pic}</option>
-                              ))}
-                            </select>
+                            {currentUser?.role === "vendor_user" ? (
+                              <span className="font-medium text-slate-300">{item.provisioningPic}</span>
+                            ) : (
+                              <select
+                                aria-label={`PIC Provisioning untuk ${item.customerName || item.siteId}`}
+                                value={item.provisioningPic}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(e) =>
+                                  updateRequest(
+                                    item.id,
+                                    "provisioningPic",
+                                    e.target.value,
+                                  )
+                                }
+                              >
+                                {pics.map((pic) => (
+                                  <option key={pic}>{pic}</option>
+                                ))}
+                              </select>
+                            )}
                           </td>
                           <td data-label="Status">
                             <div className="status-control">
                               {item.status === "On Progress" && <span className="progress-beacon" aria-label="Sedang berjalan" />}
-                              <select
-                                className={`status ${item.status.toLowerCase().replace(" ", "-")}`}
-                                value={item.status}
-                                onClick={(event) => event.stopPropagation()}
-                                onChange={(event) => changeStatus(item, event.target.value)}
-                              >
-                                {statuses.map((status) => (
-                                  <option key={status}>{status}</option>
-                                ))}
-                              </select>
+                              {currentUser?.role === "vendor_user" ? (
+                                <span className={`status ${item.status.toLowerCase().replace(" ", "-")}`}>
+                                  {item.status}
+                                </span>
+                              ) : (
+                                <select
+                                  className={`status ${item.status.toLowerCase().replace(" ", "-")}`}
+                                  aria-label={`Status request ${item.customerName || item.siteId}`}
+                                  value={item.status}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onChange={(event) => changeStatus(item, event.target.value)}
+                                >
+                                  {statuses.map((status) => (
+                                    <option key={status}>{status}</option>
+                                  ))}
+                                </select>
+                              )}
                             </div>
                           </td>
                           <td data-label="Aksi">
@@ -1007,24 +1222,28 @@ export default function Home() {
                                   <Mail size={15} />
                                 </button>
                               )}
-                              <button
-                                type="button"
-                                className="icon-action edit"
-                                title="Edit request"
-                                aria-label={`Edit ${item.customerName || item.siteId}`}
-                                onClick={(event) => { event.stopPropagation(); editRequest(item); }}
-                              >
-                                <Pencil size={15} />
-                              </button>
-                              <button
-                                type="button"
-                                className="icon-action delete"
-                                title="Hapus request"
-                                aria-label={`Hapus ${item.customerName || item.siteId}`}
-                                onClick={(event) => { event.stopPropagation(); setDeleteTarget(item); }}
-                              >
-                                <Trash2 size={15} />
-                              </button>
+                              {currentUser?.role !== "vendor_user" && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="icon-action edit"
+                                    title="Edit request"
+                                    aria-label={`Edit ${item.customerName || item.siteId}`}
+                                    onClick={(event) => { event.stopPropagation(); editRequest(item); }}
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-action delete"
+                                    title="Hapus request"
+                                    aria-label={`Hapus ${item.customerName || item.siteId}`}
+                                    onClick={(event) => { event.stopPropagation(); setDeleteTarget(item); }}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1043,6 +1262,7 @@ export default function Home() {
             </>
           ) : view === "form" || view === "urgentForm" ? (
             <RequestForm
+              requests={requests.filter((item) => item.id !== editingId)}
               form={form}
               setForm={setForm}
               busy={busy}
@@ -1050,6 +1270,7 @@ export default function Home() {
               urgent={view === "urgentForm"}
               onCancel={() => { setEditingId(null); setForm(emptyForm); setView("dashboard"); }}
               onSubmit={async () => {
+                if (busy) return;
                 setBusy(true);
                 setMessage("");
                 try {
@@ -1066,7 +1287,14 @@ export default function Home() {
               }}
             />
           ) : view === "urgent" ? (
-            <UrgentApprovalList requests={urgentRequests} onOpen={setSelectedRequest} onApprove={approveUrgent} onReschedule={openReschedule} busy={busy} />
+            <UrgentApprovalList
+              requests={urgentRequests}
+              onOpen={setSelectedRequest}
+              onApprove={approveUrgent}
+              onReschedule={openReschedule}
+              busy={busy}
+              canApprove={currentUser?.role === "superuser"}
+            />
           ) : view === "completed" ? (
             <CompletedList
               requests={completedForDate}
@@ -1090,6 +1318,7 @@ export default function Home() {
         onClose={() => setSelectedRequest(null)}
         onEdit={editRequest}
         onDelete={setDeleteTarget}
+        canEdit={currentUser?.role !== "vendor_user"}
       />
       <Dialog open={Boolean(switchEmailTarget)} onOpenChange={(open) => !open && setSwitchEmailTarget(null)}>
         <DialogContent className="email-choice-dialog">
@@ -1104,15 +1333,7 @@ export default function Home() {
               type="button"
               onClick={() => {
                 if (!switchEmailTarget) return;
-                const { subject, body } = buildSwitchEmail(switchEmailTarget);
-                const params = new URLSearchParams({
-                  to: switchEmailTo.join(","),
-                  cc: switchEmailCc.join(","),
-                  subject,
-                  body,
-                });
-                const url = `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
-                window.open(url, "_blank", "noopener,noreferrer");
+                window.open(switchWebDraftUrl(switchEmailTarget), "_blank", "noopener,noreferrer");
                 setSwitchEmailTarget(null);
               }}
             >
@@ -1125,7 +1346,10 @@ export default function Home() {
               onClick={() => {
                 if (!switchEmailTarget) return;
                 const { subject, body } = buildSwitchEmail(switchEmailTarget);
-                const url = `ms-outlook://compose?to=${encodeURIComponent(switchEmailTo.join(";"))}&cc=${encodeURIComponent(switchEmailCc.join(";"))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                const msTo = switchEmailTo.join(",");
+                const msCc = switchEmailCc.join(",");
+                const mailto = `mailto:${msTo}?cc=${encodeURIComponent(msCc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                const url = `ms-outlook://compose?mailtouri=${encodeURIComponent(mailto)}`;
                 window.location.href = url;
                 setSwitchEmailTarget(null);
               }}
@@ -1160,12 +1384,13 @@ export default function Home() {
           <div className="request-type-options">
             <button
               type="button"
-              className="request-type-option regular"
+              className={`request-type-option regular ${pastCutoff ? "disabled" : ""}`}
+              disabled={pastCutoff}
               onClick={() => { setRequestTypeDialog(false); openNewRequest(); }}
             >
-              <span><Plus size={20} /></span>
-              <div><b>Request New</b><small>Request aktivasi reguler</small></div>
-              <ChevronRight size={19} />
+              <span>{pastCutoff ? <Lock size={20} /> : <Plus size={20} />}</span>
+              <div><b>Request New</b><small>{pastCutoff ? "Tutup setelah pukul 17:00 WIB" : "Request aktivasi reguler"}</small></div>
+              {!pastCutoff && <ChevronRight size={19} />}
             </button>
             <button
               type="button"
@@ -1219,7 +1444,7 @@ export default function Home() {
             <DialogTitle>Ganti Tanggal Aktivasi</DialogTitle>
             <DialogDescription>
               Tentukan tanggal aktivasi baru untuk {rescheduleTarget?.customerName || rescheduleTarget?.siteId}.
-              Timeslot tetap {rescheduleTarget?.timeSlot}.
+              Time {rescheduleTarget?.timeSlot}; jika penuh, otomatis pindah ke slot berikutnya yang tersedia.
             </DialogDescription>
           </DialogHeader>
           <label className="reschedule-field">
@@ -1235,7 +1460,7 @@ export default function Home() {
             <button type="button" className="secondary-button" disabled={busy} onClick={() => setRescheduleTarget(null)}>
               Batal
             </button>
-            <button type="button" className="primary-button" disabled={busy || !rescheduleDate} onClick={saveReschedule}>
+            <button type="button" className="primary-button" disabled={busy || !rescheduleDate} onClick={() => void saveReschedule()}>
               {busy ? "Menyimpan…" : "Simpan Jadwal Baru"}
             </button>
           </DialogFooter>
@@ -1288,6 +1513,7 @@ function CompletedList({
   onDelete: (request: ActivationRequest) => void;
   onDeleteAll: () => void;
 }) {
+  const [calendarOpen, setCalendarOpen] = useState(false);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -1309,19 +1535,32 @@ function CompletedList({
             <button
               type="button"
               className={`view-all-button ${selectedDate === "all" ? "active" : ""}`}
-              onClick={() => onDateChange("all")}
+              aria-pressed={selectedDate === "all"}
+              onClick={() => { onDateChange("all"); setCalendarOpen(false); }}
             >
               <ClipboardList size={15} /> View All
             </button>
-            <label className="completed-date-filter">
-              <span>Pilih tanggal</span>
-              <input
-                type="date"
-                value={selectedDate === "all" ? "" : selectedDate}
-                onChange={(event) => onDateChange(event.target.value || "all")}
-              />
-              {selectedDate !== "all" && <b className="calendar-date-label">{formatActivationDate(selectedDate)}</b>}
-            </label>
+            <div className="completed-date-filter">
+              <span id="completed-date-label">Tanggal selesai</span>
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <button type="button" className="activation-date-trigger" aria-labelledby="completed-date-label completed-date-value">
+                    <span id="completed-date-value">{selectedDate === "all" ? "Pilih tanggal" : formatActivationDate(selectedDate)}</span>
+                    <CalendarDays size={17} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="activation-calendar-popover w-auto p-0" align="end">
+                  <Calendar className="activation-calendar" mode="single"
+                    selected={selectedDate === "all" ? undefined : new Date(selectedDate + "T00:00:00")}
+                    defaultMonth={selectedDate === "all" ? undefined : new Date(selectedDate + "T00:00:00")}
+                    onSelect={(date) => {
+                      if (!date) return;
+                      onDateChange([date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-"));
+                      setCalendarOpen(false);
+                    }} />
+                </PopoverContent>
+              </Popover>
+            </div>
             <button type="button" className="bulk-delete-button" disabled={!requests.length} onClick={onDeleteAll}>
               <Trash2 size={15} /> Hapus Semua
             </button>
@@ -1341,7 +1580,7 @@ function CompletedList({
             <tbody>
               {requests.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
-                  <td data-label="Customer"><b>{item.customerName || item.siteId}</b><span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span></td>
+                  <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span></td>
                   <td data-label="Waktu Selesai"><b className="capitalize">{formatActivationDate(getCompletedDate(item))}</b><span>{formatCompletedTime(item.completedAt)}</span></td>
                   <td data-label="Area & Vendor"><b>{item.area}</b><span>{item.vendorName}</span></td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
@@ -1407,7 +1646,7 @@ function PendingList({
               {requests.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
                   <td data-label="Customer">
-                    <b>{item.customerName || item.siteId}</b>
+                    <button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button>
                     <span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span>
                   </td>
                   <td data-label="Jadwal Sebelumnya">
@@ -1448,12 +1687,14 @@ function UrgentApprovalList({
   onApprove,
   onReschedule,
   busy,
+  canApprove = true,
 }: {
   requests: ActivationRequest[];
   onOpen: (request: ActivationRequest) => void;
   onApprove: (request: ActivationRequest) => void;
   onReschedule: (request: ActivationRequest) => void;
   busy: boolean;
+  canApprove?: boolean;
 }) {
   return (
     <div>
@@ -1476,12 +1717,16 @@ function UrgentApprovalList({
               {requests.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
                   <td data-label="Kode Approval"><b className="approval-code">{item.approvalCode}</b></td>
-                  <td data-label="Customer"><b>{item.customerName}</b><span>{item.siteId} · {item.subsId}</span></td>
+                  <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId}</span></td>
                   <td data-label="Jadwal Diajukan"><b className="capitalize">{formatActivationDate(item.activationDate)}</b><span>{item.timeSlot}</span></td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
                   <td data-label="Tindakan">
                     <div className="urgent-actions">
-                      <button type="button" className="approve-button" disabled={busy} onClick={(event) => { event.stopPropagation(); void onApprove(item); }}><CheckCircle2 size={16} /> Approve</button>
+                      {canApprove ? (
+                        <button type="button" className="approve-button" disabled={busy} onClick={(event) => { event.stopPropagation(); void onApprove(item); }}><CheckCircle2 size={16} /> Approve</button>
+                      ) : (
+                        <button type="button" className="approve-button opacity-40 cursor-not-allowed" disabled title="Hanya Superuser yang dapat menyetujui request urgent"><Lock size={15} /> Superuser Only</button>
+                      )}
                       <button type="button" className="reschedule-button" disabled={busy} onClick={(event) => { event.stopPropagation(); onReschedule(item); }}><CalendarClock size={16} /> Reschedule</button>
                     </div>
                   </td>
@@ -1503,11 +1748,13 @@ function RequestDetail({
   onClose,
   onEdit,
   onDelete,
+  canEdit = true,
 }: {
   request: ActivationRequest | null;
   onClose: () => void;
   onEdit: (request: ActivationRequest) => void;
   onDelete: (request: ActivationRequest) => void;
+  canEdit?: boolean;
 }) {
   return (
     <Sheet open={Boolean(request)} onOpenChange={(open) => !open && onClose()}>
@@ -1525,10 +1772,12 @@ function RequestDetail({
               <span className={`detail-status status-${request.status.toLowerCase().replaceAll(" ", "-")}`}>
                 {request.approvalStatus === "Waiting Approval" ? "Waiting Approval" : request.status}
               </span>
-              <div className="detail-actions">
-                <button type="button" onClick={() => onEdit(request)}><Pencil size={15} /> Edit</button>
-                <button type="button" className="danger" onClick={() => onDelete(request)}><Trash2 size={15} /> Hapus</button>
-              </div>
+              {canEdit && (
+                <div className="detail-actions">
+                  <button type="button" onClick={() => onEdit(request)}><Pencil size={15} /> Edit</button>
+                  <button type="button" className="danger" onClick={() => onDelete(request)}><Trash2 size={15} /> Hapus</button>
+                </div>
+              )}
             </SheetHeader>
 
             <div className="detail-scroll">
@@ -1536,8 +1785,8 @@ function RequestDetail({
                 <DetailItem label="Nama Customer" value={request.customerName || "-"} wide />
                 <DetailItem label="Service Type" value={request.serviceType || "Belum ditentukan"} wide />
                 <DetailItem
-                  label="Pekerjaan Opsional"
-                  value={[
+                  label="Work Type"
+                  value={request.workType || [
                     request.isRelocation ? "Relocation" : "",
                     request.isRelayout ? "Relayout" : "",
                   ].filter(Boolean).join(" & ") || "-"}
@@ -1551,7 +1800,7 @@ function RequestDetail({
 
               <DetailSection title="Jadwal Aktivasi">
                 <DetailItem label="Hari & Tanggal" value={formatActivationDate(request.activationDate)} wide />
-                <DetailItem label="Timeslot" value={request.timeSlot} />
+                <DetailItem label="Time" value={request.timeSlot} />
                 <DetailItem label="Status" value={request.status} />
                 {request.status === "Completed" && (
                   <DetailItem label="Waktu Selesai" value={`${formatActivationDate(getCompletedDate(request))} · ${formatCompletedTime(request.completedAt)}`} wide />
@@ -1664,6 +1913,7 @@ function Metric({
 }
 
 function RequestForm({
+  requests,
   form,
   setForm,
   busy,
@@ -1672,6 +1922,7 @@ function RequestForm({
   urgent,
   onCancel,
 }: {
+  requests: ActivationRequest[];
   form: typeof emptyForm;
   setForm: React.Dispatch<React.SetStateAction<typeof emptyForm>>;
   busy: boolean;
@@ -1680,8 +1931,15 @@ function RequestForm({
   urgent: boolean;
   onCancel: () => void;
 }) {
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const counts = Object.fromEntries(slots.map((slot) => [slot, requests.filter((item) => item.activationDate === form.activationDate && item.timeSlot === slot).length]));
+  const effectiveSlot = form.activationDate ? candidateSlots(form.timeSlot).find((slot) => counts[slot] < SLOT_CAPACITY) ?? "" : form.timeSlot;
+  const scheduleFull = Boolean(form.activationDate) && !effectiveSlot;
+  useEffect(() => {
+    if (effectiveSlot && effectiveSlot !== form.timeSlot) setForm((current) => ({ ...current, timeSlot: effectiveSlot }));
+  }, [effectiveSlot, form.timeSlot, setForm]);
   const input = (key: keyof typeof emptyForm) => ({
-    value: form[key],
+    value: (form[key] ?? "") as string | number,
     onChange: (
       event: React.ChangeEvent<
         HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -1707,7 +1965,7 @@ function RequestForm({
           <Clock3 size={18} />
           <div>
             <b>{editing ? "Mode edit request" : urgent ? "Memerlukan Approval" : "Pengajuan request dibuka"}</b>
-            <span>{editing ? "Perbarui data lalu simpan perubahan." : urgent ? "Request akan masuk ke menu Urgent Approval untuk disetujui atau dijadwalkan ulang." : "Request aktivasi dapat dikirim kapan saja."}</span>
+            <span>{editing ? "Perbarui data lalu simpan perubahan." : urgent ? "Request akan masuk ke menu Urgent Approval untuk disetujui atau dijadwalkan ulang." : "Request reguler dibuka sampai pukul 17:00 WIB. Setelah itu, gunakan Request Urgent."}</span>
           </div>
         </div>
       </div>
@@ -1718,7 +1976,35 @@ function RequestForm({
           onSubmit();
         }}
       >
-        <FormSection number="01" title="Data Customer" icon={<Building2 size={18} />}>
+        <FormSection number="01" title="Jadwal Aktivasi" icon={<CalendarDays size={18} />}>
+          <div className="form-grid">
+            <Field label="Tanggal Aktivasi">
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild><button type="button" className="activation-date-trigger"><span>{form.activationDate ? formatActivationDate(form.activationDate) : "Pilih tanggal aktivasi"}</span><CalendarDays size={19} /></button></PopoverTrigger>
+                <PopoverContent className="activation-calendar-popover w-auto p-0" align="start">
+                  <Calendar className="activation-calendar" mode="single" selected={form.activationDate ? new Date(form.activationDate + "T00:00:00") : undefined} onSelect={(date) => {
+                    if (!date) return;
+                    const value = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+                    const next = slots.find((slot) => requests.filter((item) => item.activationDate === value && item.timeSlot === slot).length < SLOT_CAPACITY);
+                    setForm({ ...form, activationDate: value, timeSlot: next ?? slots[0] });
+                    setCalendarOpen(false);
+                  }} />
+                </PopoverContent>
+              </Popover>
+            </Field>
+            <Field label="Time Aktivasi" wide>
+              <div className="slot-grid">
+                {slots.map((slot, index) => <label key={slot} className={[effectiveSlot === slot ? "selected" : "", counts[slot] >= SLOT_CAPACITY ? "slot-full" : ""].join(" ")}>
+                  <input type="radio" name="slot" value={slot} disabled={!form.activationDate || counts[slot] >= SLOT_CAPACITY} checked={effectiveSlot === slot} onChange={(event) => setForm({ ...form, timeSlot: event.target.value })} />
+                  <b>Slot {index + 1}</b><span>{slot}</span><span>{form.activationDate ? counts[slot] + "/10 request" + (counts[slot] >= SLOT_CAPACITY ? " · Penuh" : "") : "Pilih tanggal dahulu"}</span>
+                </label>)}
+              </div>
+            </Field>
+            <p className="wide date-preview" role="status">{scheduleFull ? "Slot penuh. Pilih slot sebelumnya yang tersedia atau tanggal lain." : "Maksimal 10 request per slot. Slot penuh otomatis dialihkan ke slot berikutnya."}</p>
+            <Field label="Catatan Tambahan" wide><textarea rows={3} placeholder="Kebutuhan akses, kendala lokasi, atau informasi tambahan" {...input("notes")} /></Field>
+          </div>
+        </FormSection>
+        <FormSection number="02" title="Data Customer" icon={<Building2 size={18} />}>
           <div className="form-grid">
             <Field label="Nama Customer" wide>
               <input
@@ -1727,33 +2013,17 @@ function RequestForm({
                 {...input("customerName")}
               />
             </Field>
-            <Field label="Service Type" wide>
+            <Field label="Product Type" wide>
               <select required {...input("serviceType")}>
-                <option value="" disabled>Pilih Service Type</option>
+                <option value="" disabled>Pilih Product Type</option>
                 {serviceTypes.map((service) => <option key={service}>{service}</option>)}
               </select>
             </Field>
-            <Field label="Pekerjaan Opsional" wide>
-              <div className="optional-work-grid">
-                <label className={form.isRelocation ? "selected" : ""}>
-                  <input
-                    type="checkbox"
-                    checked={form.isRelocation}
-                    onChange={(event) => setForm({ ...form, isRelocation: event.target.checked })}
-                  />
-                  <span>Relocation</span>
-                  <small>Aktivasi mencakup perpindahan lokasi layanan.</small>
-                </label>
-                <label className={form.isRelayout ? "selected" : ""}>
-                  <input
-                    type="checkbox"
-                    checked={form.isRelayout}
-                    onChange={(event) => setForm({ ...form, isRelayout: event.target.checked })}
-                  />
-                  <span>Relayout</span>
-                  <small>Aktivasi mencakup perubahan jalur atau penataan ulang.</small>
-                </label>
-              </div>
+            <Field label="Work Type" wide>
+              <select required={!editing} {...input("workType")}>
+                <option value="" disabled={!editing}>Pilih Work Type</option>
+                {workTypes.map((workType) => <option key={workType}>{workType}</option>)}
+              </select>
             </Field>
             <Field label="Site ID">
               <input required placeholder="S007xxxx" {...input("siteId")} />
@@ -1780,7 +2050,7 @@ function RequestForm({
             </Field>
           </div>
         </FormSection>
-        <FormSection number="02" title="Area & Penanggung Jawab" icon={<ShieldCheck size={18} />}>
+        <FormSection number="03" title="Area & Penanggung Jawab" icon={<ShieldCheck size={18} />}>
           <div className="form-grid">
             <Field label="Area">
               <input
@@ -1819,15 +2089,22 @@ function RequestForm({
             </Field>
             <Field label="Akses Media">
               <select {...input("accessMedia")}>
-                <option>Metro</option>
                 <option>GPON</option>
                 <option>Interkoneksi</option>
                 <option>Existing Link</option>
+                <option>DWDM</option>
+                <option>M2M</option>
+                <option>METRO</option>
+                <option>SDWAN</option>
+                <option>Skyfiber</option>
+                <option>UTP</option>
+                <option>VSAT</option>
+                <option>Wireless</option>
               </select>
             </Field>
           </div>
         </FormSection>
-        <FormSection number="03" title="Perangkat & RFA" icon={<RadioTower size={18} />}>
+        <FormSection number="04" title="Perangkat & RFA" icon={<RadioTower size={18} />}>
           <div className="form-grid">
             <Field label="Perangkat yang Dipasang" wide>
               <textarea
@@ -1955,43 +2232,6 @@ function RequestForm({
             )}
           </div>
         </FormSection>
-        <FormSection number="04" title="Jadwal Aktivasi" icon={<CalendarDays size={18} />}>
-          <div className="form-grid">
-            <Field label="Tanggal Aktivasi">
-              <input required type="date" {...input("activationDate")} />
-              {form.activationDate && <span className="date-preview">{formatActivationDate(form.activationDate)}</span>}
-            </Field>
-            <Field label="Timeslot Aktivasi" wide>
-              <div className="slot-grid">
-                {slots.map((slot, index) => (
-                  <label
-                    key={slot}
-                    className={form.timeSlot === slot ? "selected" : ""}
-                  >
-                    <input
-                      type="radio"
-                      name="slot"
-                      value={slot}
-                      checked={form.timeSlot === slot}
-                      onChange={(event) =>
-                        setForm({ ...form, timeSlot: event.target.value })
-                      }
-                    />
-                    <b>Slot {index + 1}</b>
-                    <span>{slot}</span>
-                  </label>
-                ))}
-              </div>
-            </Field>
-            <Field label="Catatan Tambahan" wide>
-              <textarea
-                rows={3}
-                placeholder="Kebutuhan akses, kendala lokasi, atau informasi tambahan"
-                {...input("notes")}
-              />
-            </Field>
-          </div>
-        </FormSection>
         <div className="flex flex-wrap justify-end gap-3">
           {editing && (
             <button disabled={busy} className="secondary-button" type="button" onClick={onCancel}>
@@ -1999,7 +2239,7 @@ function RequestForm({
             </button>
           )}
           <button
-            disabled={busy}
+            disabled={busy || !form.activationDate || scheduleFull}
             className="primary-button min-w-48"
             type="submit"
           >

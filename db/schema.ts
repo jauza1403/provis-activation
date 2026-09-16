@@ -12,6 +12,7 @@ export const activationRequests = sqliteTable(
     vendorName: text("vendor_name").notNull(),
     accessMedia: text("access_media").notNull(),
     serviceType: text("service_type").notNull().default(""),
+    workType: text("work_type").notNull().default(""),
     isRelocation: integer("is_relocation", { mode: "boolean" }).notNull().default(false),
     isRelayout: integer("is_relayout", { mode: "boolean" }).notNull().default(false),
     customerName: text("customer_name").notNull().default(""),
@@ -55,3 +56,14 @@ export const activationRequests = sqliteTable(
     index("idx_activation_approval").on(table.approvalStatus, table.approvalCode),
   ],
 );
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  salt: text("salt").notNull(),
+  name: text("name").notNull(),
+  role: text("role").notNull(),
+  vendorName: text("vendor_name").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+});
