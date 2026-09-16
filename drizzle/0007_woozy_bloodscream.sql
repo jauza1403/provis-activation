@@ -1,0 +1,1 @@
+ALTER TABLE `activation_requests` ADD `service_type` text DEFAULT '' NOT NULL;

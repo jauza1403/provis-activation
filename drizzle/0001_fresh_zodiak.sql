@@ -1,0 +1,1 @@
+ALTER TABLE `activation_requests` ADD `customer_name` text DEFAULT '' NOT NULL;

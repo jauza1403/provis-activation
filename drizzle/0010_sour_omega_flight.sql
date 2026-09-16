@@ -1,0 +1,1 @@
+ALTER TABLE `activation_requests` ADD `vlan_switch` text DEFAULT '' NOT NULL;

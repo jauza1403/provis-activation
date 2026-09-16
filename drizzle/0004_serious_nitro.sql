@@ -1,0 +1,1 @@
+ALTER TABLE `activation_requests` ADD `pending_reason` text DEFAULT '' NOT NULL;

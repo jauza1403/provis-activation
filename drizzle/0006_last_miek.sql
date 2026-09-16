@@ -1,0 +1,1 @@
+ALTER TABLE `activation_requests` ADD `completed_at` text DEFAULT '' NOT NULL;
