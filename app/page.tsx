@@ -80,6 +80,7 @@ type ActivationRequest = {
   oppNumber: string;
   woNumber: string;
   devicePlan: string;
+  ipAddress: string;
   installSwitch: boolean;
   switchBrand: string;
   vlanSwitch: string;
@@ -160,6 +161,12 @@ const serviceTypes = [
   "MWIFO - Wireless Skyfiber + WIFI + Manage Svc",
   "VSAT - VSAT - Internet Service - Dedicated",
   "VSAT - VSAT - Managed Service - L3VPN MPLS Solution",
+];
+const noIpServiceTypes = [
+  "MWIFO - FO - Internet Service - Broadband Up To",
+  "MWIFO - GSM - Internet Service - Dedicated - M2M",
+  "VSAT - VSAT - Internet Service - Dedicated",
+  "MWIFO - Wireless - BOD Internet Skyfiber",
 ];
 const workTypes = [
   "Bandwidth on Demand Existing Site",
@@ -378,6 +385,7 @@ const emptyForm = {
   oppNumber: "",
   woNumber: "",
   devicePlan: "",
+  ipAddress: "",
   installSwitch: false,
   switchBrand: "",
   vlanSwitch: "",
@@ -584,6 +592,7 @@ export default function Home() {
           oppNumber: { type: "string" },
           woNumber: { type: "string" },
           devicePlan: { type: "string" },
+          ipAddress: { type: "string" },
           installSwitch: { type: "boolean" },
           switchBrand: { type: "string", enum: switchBrands },
           vlanSwitch: { type: "string" },
@@ -842,6 +851,7 @@ export default function Home() {
       oppNumber: item.oppNumber,
       woNumber: item.woNumber,
       devicePlan: item.devicePlan,
+      ipAddress: item.ipAddress || "",
       installSwitch: Boolean(item.installSwitch),
       switchBrand: item.switchBrand || "",
       vlanSwitch: item.vlanSwitch || "",
@@ -2203,6 +2213,7 @@ function RequestDetail({
                 <DetailItem label="Port OTB POP" value={request.popOtbPort || "-"} />
                 <DetailItem label="Redaman" value={request.attenuation || "-"} />
                 <DetailItem label="End to End" value={request.endToEnd || "-"} wide />
+                <DetailItem label="IP" value={request.ipAddress || "-"} wide />
                 <DetailItem label="Perangkat yang Dipasang" value={request.devicePlan} wide />
                 <DetailItem
                   label="Install Switch"
@@ -2538,6 +2549,15 @@ function RequestForm({
         </FormSection>
         <FormSection number="04" title="Perangkat & RFA" icon={<RadioTower size={18} />}>
           <div className="form-grid">
+            {!noIpServiceTypes.includes(form.serviceType) && (
+              <Field label="IP" wide>
+                <input
+                  required
+                  placeholder="Contoh: 103.84.2.0/30"
+                  {...input("ipAddress")}
+                />
+              </Field>
+            )}
             <Field label="Perangkat yang Dipasang" wide>
               <textarea
                 required

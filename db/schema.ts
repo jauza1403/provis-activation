@@ -21,6 +21,7 @@ export const activationRequests = sqliteTable(
     oppNumber: text("opp_number").notNull(),
     woNumber: text("wo_number").notNull(),
     devicePlan: text("device_plan").notNull(),
+    ipAddress: text("ip_address").notNull().default(""),
     installSwitch: integer("install_switch", { mode: "boolean" }).notNull().default(false),
     switchBrand: text("switch_brand").notNull().default(""),
     vlanSwitch: text("vlan_switch").notNull().default(""),

@@ -48,6 +48,7 @@ export interface ScheduleSource {
   oppNumber: string;
   woNumber: string;
   devicePlan: string;
+  ipAddress: string;
   popId: string;
   popName: string;
   cableLength: string;
@@ -115,6 +116,7 @@ export function buildScheduleSheetRow(source: ScheduleSource): string[] {
   row[38] = source.popId; // AM: POP ID
   row[39] = source.popName; // AN: POP NAME
   row[40] = source.devicePlan; // AO: PERANGKAT YANG AKAN PASANG
+  row[42] = source.ipAddress; // AK: IP CUSTOMER
   row[47] = source.cableType; // AV: TYPE KABEL
   row[48] = source.endToEnd; // AW: END TO END
   row[50] = source.fatOdpCode; // AY: KODE ODP/FAT

@@ -249,6 +249,7 @@ export async function ensureActivationRequestsTable(): Promise<void> {
         opp_number TEXT NOT NULL,
         wo_number TEXT NOT NULL,
         device_plan TEXT NOT NULL,
+        ip_address TEXT NOT NULL DEFAULT '',
         install_switch INTEGER NOT NULL DEFAULT 0,
         switch_brand TEXT NOT NULL DEFAULT '',
         vlan_switch TEXT NOT NULL DEFAULT '',
@@ -282,6 +283,8 @@ export async function ensureActivationRequestsTable(): Promise<void> {
     `);
 
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN screenshot_url TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN ip_address TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
 
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN work_type TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
 

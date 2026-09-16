@@ -44,6 +44,13 @@ function getWibClock(date = new Date()) {
 const allowedStatus = ["Idle", "On Progress", "Completed", "Reschedule", "Pending"];
 const CUTOFF_HOUR = 17;
 
+const NO_IP_SERVICE_TYPES = [
+  "MWIFO - FO - Internet Service - Broadband Up To",
+  "MWIFO - GSM - Internet Service - Dedicated - M2M",
+  "VSAT - VSAT - Internet Service - Dedicated",
+  "MWIFO - Wireless - BOD Internet Skyfiber",
+];
+
 function slotStartMinutes(timeSlot: string) {
   const match = timeSlot.match(/^(\d{2})\.(\d{2})/);
   return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
@@ -146,6 +153,13 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    const needsIp = !NO_IP_SERVICE_TYPES.includes(body.serviceType);
+    if (needsIp && !String(body.ipAddress ?? "").trim()) {
+      return NextResponse.json(
+        { error: "Mohon isi IP customer." },
+        { status: 400 },
+      );
+    }
     const row = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -165,6 +179,7 @@ export async function POST(request: Request) {
       oppNumber: body.oppNumber.trim(),
       woNumber: body.woNumber.trim(),
       devicePlan: body.devicePlan.trim(),
+      ipAddress: needsIp ? String(body.ipAddress ?? "").trim() : "",
       installSwitch: Boolean(body.installSwitch),
       switchBrand: body.installSwitch ? String(body.switchBrand ?? "").trim() : "",
       vlanSwitch: body.installSwitch ? String(body.vlanSwitch ?? "").trim() : "",
@@ -264,6 +279,9 @@ export async function PATCH(request: Request) {
         `[AUDIT] Urgent request ${body.id} approved by Superuser: ${user.username} (${user.name}) at ${new Date().toISOString()}`,
       );
     }
+    const db = getDb();
+    const [current] = await db.select().from(activationRequests).where(eq(activationRequests.id, body.id));
+    if (!current) return NextResponse.json({ error: "Request tidak ditemukan." }, { status: 404 });
     const update: Record<string, string | number | boolean> = {};
     if (body.status) {
       update.status = body.status;
@@ -288,6 +306,14 @@ export async function PATCH(request: Request) {
     if (body.provisioningPic) update.provisioningPic = body.provisioningPic;
     if (typeof body.notes === "string") update.notes = body.notes.trim();
     if (typeof body.screenshotUrl === "string") update.screenshotUrl = body.screenshotUrl.trim();
+    if (typeof body.ipAddress === "string") {
+      const serviceForIp = String(body.serviceType ?? current.serviceType);
+      const noIp = NO_IP_SERVICE_TYPES.includes(serviceForIp);
+      if (!noIp && !String(body.ipAddress).trim()) {
+        return NextResponse.json({ error: "Mohon isi IP customer." }, { status: 400 });
+      }
+      update.ipAddress = noIp ? "" : String(body.ipAddress).trim();
+    }
     if (typeof body.isRelocation === "boolean") update.isRelocation = body.isRelocation;
     if (typeof body.isRelayout === "boolean") update.isRelayout = body.isRelayout;
     if (typeof body.installSwitch === "boolean") {
@@ -325,9 +351,6 @@ export async function PATCH(request: Request) {
     if (!Object.keys(update).length) {
       return NextResponse.json({ error: "Tidak ada perubahan untuk disimpan." }, { status: 400 });
     }
-    const db = getDb();
-    const [current] = await db.select().from(activationRequests).where(eq(activationRequests.id, body.id));
-    if (!current) return NextResponse.json({ error: "Request tidak ditemukan." }, { status: 404 });
     const date = String(update.activationDate ?? current.activationDate);
     const requestedSlot = String(update.timeSlot ?? current.timeSlot);
     if (!validSchedule(date, requestedSlot)) return NextResponse.json({ error: "Tanggal atau slot tidak valid." }, { status: 400 });
