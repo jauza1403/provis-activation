@@ -5,6 +5,16 @@ import { activationRequests } from "@/db/schema";
 import { ensureActivationRequestsTable, getSessionUser } from "@/lib/auth";
 
 import { candidateSlots, SLOT_CAPACITY } from "@/lib/scheduling";
+function normalizeRegionScope(area: string) {
+  const value = area.trim().toLowerCase();
+  if (value.includes("jabo") && value.includes("jabar")) return "jabojabar";
+  if (value.includes("jawa barat") || value.includes("jabojabar")) return "jabojabar";
+  if (value.includes("jakarta") || value === "jabo" || value.includes("jabodetabek")) return "jabo";
+  return "regional";
+}
+function requestRegion(row: { regionScope?: string; area: string }) {
+  return String(row.regionScope || normalizeRegionScope(row.area)).trim().toLowerCase();
+}
 function capacity(date: string, slot: string, excludeId = "") {
   return sql`(SELECT count(*) FROM activation_requests WHERE activation_date = ${date} AND time_slot = ${slot} AND id != ${excludeId}) < ${SLOT_CAPACITY}`;
 }
@@ -65,7 +75,8 @@ export async function GET(request: Request) {
       .orderBy(desc(activationRequests.createdAt));
     if (user.role === "vendor_user" && user.vendorName.trim()) {
       const vendor = user.vendorName.trim().toLowerCase();
-      rows = rows.filter((row) => row.vendorName.trim().toLowerCase() === vendor);
+      const region = String(user.regionScope ?? "").trim().toLowerCase();
+      rows = rows.filter((row) => row.vendorName.trim().toLowerCase() === vendor && (!region || requestRegion(row) === region));
     }
     const now = getWibClock();
     const nowMinutes = now.hour * 60 + now.minute;
@@ -146,6 +157,7 @@ export async function POST(request: Request) {
       timeSlot: body.timeSlot,
       area: body.area.trim(),
       vendorName: body.vendorName.trim(),
+      regionScope: String(body.regionScope || normalizeRegionScope(body.area)).trim().toLowerCase(),
       accessMedia: body.accessMedia,
       serviceType: body.serviceType,
       workType: String(body.workType ?? "").trim(),
@@ -291,8 +303,9 @@ export async function PATCH(request: Request) {
     if (!current) return NextResponse.json({ error: "Request tidak ditemukan." }, { status: 404 });
     if (user.role === "vendor_user") {
       const vendor = user.vendorName.trim().toLowerCase();
+      const region = String(user.regionScope ?? "").trim().toLowerCase();
       const allowed = ["id", "status", "activationDate", "timeSlot", "pendingReason", "rescheduleReason"];
-      if (current.vendorName.trim().toLowerCase() !== vendor || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
+      if (current.vendorName.trim().toLowerCase() !== vendor || (region && requestRegion(current) !== region) || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
         return NextResponse.json({ error: "Vendor hanya dapat mengajukan reschedule untuk request miliknya." }, { status: 403 });
       }
     }

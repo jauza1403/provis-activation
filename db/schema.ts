@@ -9,6 +9,7 @@ export const activationRequests = sqliteTable(
     activationDate: text("activation_date").notNull(),
     timeSlot: text("time_slot").notNull(),
     area: text("area").notNull(),
+    regionScope: text("region_scope").notNull().default(""),
     vendorName: text("vendor_name").notNull(),
     accessMedia: text("access_media").notNull(),
     serviceType: text("service_type").notNull().default(""),
@@ -71,5 +72,6 @@ export const users = sqliteTable("users", {
   name: text("name").notNull(),
   role: text("role").notNull(),
   vendorName: text("vendor_name").notNull().default(""),
+  regionScope: text("region_scope").notNull().default(""),
   createdAt: text("created_at").notNull(),
 });

@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
+import { VENDOR_SEED_ACCOUNTS } from "@/lib/vendor-account-seeds";
 
 export type UserRole = "superuser" | "project_user" | "vendor_user";
 
@@ -10,6 +11,7 @@ export type AuthUser = {
   name: string;
   role: UserRole;
   vendorName: string;
+  regionScope: string;
 };
 
 export const COOKIE_NAME = "auth_session";
@@ -24,6 +26,7 @@ export const SEED_ACCOUNTS = [
     name: "Super Administrator",
     role: "superuser" as UserRole,
     vendorName: "",
+    regionScope: "",
   },
   {
     id: "usr-project-002",
@@ -32,6 +35,7 @@ export const SEED_ACCOUNTS = [
     name: "Project Coordinator",
     role: "project_user" as UserRole,
     vendorName: "",
+    regionScope: "",
   },
   {
     id: "usr-vendor-003",
@@ -40,7 +44,9 @@ export const SEED_ACCOUNTS = [
     name: "Vendor User",
     role: "vendor_user" as UserRole,
     vendorName: "",
+    regionScope: "",
   },
+  ...VENDOR_SEED_ACCOUNTS,
 ];
 
 export async function hashPassword(password: string, salt: string): Promise<string> {
@@ -145,6 +151,7 @@ export async function verifySessionToken(token: string): Promise<AuthUser | null
       name: payload.name,
       role: payload.role,
       vendorName: payload.vendorName || "",
+      regionScope: payload.regionScope || "",
     };
   } catch {
     return null;
@@ -191,9 +198,12 @@ export async function ensureUsersTableAndSeed(): Promise<void> {
         name TEXT NOT NULL,
         role TEXT NOT NULL,
         vendor_name TEXT NOT NULL DEFAULT '',
+        region_scope TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL
       )
     `);
+
+    await db.run(sql`ALTER TABLE users ADD COLUMN region_scope TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
 
     for (const seed of SEED_ACCOUNTS) {
       const [existing] = await db
@@ -211,15 +221,18 @@ export async function ensureUsersTableAndSeed(): Promise<void> {
           name: seed.name,
           role: seed.role,
           vendorName: seed.vendorName,
+          regionScope: seed.regionScope,
           createdAt: new Date().toISOString(),
         });
-      } else if (existing.vendorName !== seed.vendorName || existing.name !== seed.name) {
+      } else if (existing.vendorName !== seed.vendorName || existing.name !== seed.name || existing.regionScope !== seed.regionScope) {
         await db
           .update(users)
-          .set({ name: seed.name, vendorName: seed.vendorName })
+          .set({ name: seed.name, vendorName: seed.vendorName, regionScope: seed.regionScope })
           .where(eq(users.id, existing.id));
       }
     }
+    // Remove the superseded standalone AIRI test account; the CSV now defines airi-jabo and airi-regional.
+    await db.delete(users).where(eq(users.username, "airi"));
     isDbInitialized = true;
   } catch (err) {
     console.warn("D1 users table init/seed skipped, will use memory seed accounts:", err);
@@ -238,6 +251,7 @@ export async function ensureActivationRequestsTable(): Promise<void> {
         time_slot TEXT NOT NULL,
         area TEXT NOT NULL,
         vendor_name TEXT NOT NULL,
+        region_scope TEXT NOT NULL DEFAULT '',
         access_media TEXT NOT NULL,
         service_type TEXT NOT NULL DEFAULT '',
         work_type TEXT NOT NULL DEFAULT '',
@@ -286,6 +300,7 @@ export async function ensureActivationRequestsTable(): Promise<void> {
     `);
 
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN work_type TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN region_scope TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN reschedule_reason TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN pic_reschedule_reason TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN pic_reschedule_date TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
@@ -327,6 +342,7 @@ export async function authenticateUser(
           name: userRecord.name,
           role: userRecord.role as UserRole,
           vendorName: userRecord.vendorName,
+          regionScope: userRecord.regionScope,
         };
       }
       return null;
@@ -344,6 +360,7 @@ export async function authenticateUser(
       name: seed.name,
       role: seed.role,
       vendorName: seed.vendorName,
+      regionScope: seed.regionScope,
     };
   }
 

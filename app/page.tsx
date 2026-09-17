@@ -66,6 +66,7 @@ type ActivationRequest = {
   activationDate: string;
   timeSlot: string;
   area: string;
+  regionScope: string;
   vendorName: string;
   accessMedia: string;
   serviceType: string;
@@ -119,7 +120,16 @@ type CurrentUser = {
   name: string;
   role: "superuser" | "project_user" | "vendor_user";
   vendorName: string;
+  regionScope: string;
 };
+
+function displayRegionScope(regionScope: string) {
+  const normalized = regionScope.trim().toLowerCase();
+  if (normalized === "jabojabar") return "JABO/JABAR";
+  if (normalized === "jabo") return "JABO";
+  if (normalized === "regional") return "REGIONAL";
+  return regionScope.trim().toUpperCase();
+}
 
 const pics = [
   "Agus Wibowo",
@@ -952,7 +962,7 @@ export default function Home() {
             </div>
             {currentUser && (
               <div className="user-profile-badge flex items-center gap-3 pl-3 border-l border-slate-800">
-                <div className="text-right hidden sm:block">
+                <div className="text-right">
                   <div className="text-xs font-semibold text-slate-200 leading-tight">
                     {currentUser.name}
                   </div>
@@ -973,6 +983,11 @@ export default function Home() {
                       </span>
                     )}
                   </div>
+                  {currentUser.role === "vendor_user" && currentUser.regionScope && (
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400 mt-1">
+                      Region: {displayRegionScope(currentUser.regionScope)}
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"
