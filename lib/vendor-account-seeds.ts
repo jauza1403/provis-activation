@@ -1,53 +1,64 @@
+type VendorSeedAccount = {
+  id: string;
+  username: string;
+  name: string;
+  role: "vendor_user";
+  vendorName: string;
+  regionScope: string;
+  salt: string;
+  passwordHash: string;
+};
+
 export const VENDOR_ACCOUNT_ROWS = `
-airwaveajiperkasa-jabo|airwaveajiperkasajabo123|AIRWAVE AJI PERKASA, PT|jabo
-airwaveajiperkasa-regional|airwaveajiperkasaregional123|AIRWAVE AJI PERKASA, PT|regional
-airi-jabo|airijabo123|Airi|jabo
-airi-regional|airiregional123|Airi|regional
-andrinateknologiindonesia-jabojabar|andrinateknologiindonesiajabojabar123|ANDRINA TEKNOLOGI INDONESIA, PT|jabojabar
-anekajayalanggengsentosa-jabo|anekajayalanggengsentosajabo123|ANEKA JAYA LANGGENG SENTOSA, PT|jabo
-anugrahterangpersada-jabojabar|anugrahterangpersadajabojabar123|ANUGRAH TERANG PERSADA, PT|jabojabar
-bcm-jabo|bcmjabo123|BCM|jabo
-catursekawan-jabojabar|catursekawanjabojabar123|CATUR SEKAWAN, PT|jabojabar
-cemerlanglintaspersada-jabo|cemerlanglintaspersadajabo123|CEMERLANG LINTAS PERSADA, PT|jabo
-ciptadayaselaras-regional|ciptadayaselarasregional123|CIPTA DAYA SELARAS, PT|regional
-dayakomunikasiinternasional-jabojabar|dayakomunikasiinternasionaljabojabar123|DAYA KOMUNIKASI INTERNASIONAL, PT|jabojabar
-fajarmitrakridaabadi-regional|fajarmitrakridaabadiregional123|FAJAR MITRA KRIDA ABADI, PT|regional
-globalmultipowerindonesia-regional|globalmultipowerindonesiaregional123|GLOBAL MULTIPOWER INDONESIA, PT|regional
-jmm-jabo|jmmjabo123|JMM|jabo
-jmm-regional|jmmregional123|JMM|regional
-jga-regional|jgaregional123|JGA|regional
-jip-jabo|jipjabo123|JIP|jabo
-jip-regional|jipregional123|JIP|regional
-magnaenergiindonusa-regional|magnaenergiindonusaregional123|MAGNA ENERGI INDONUSA, PT|regional
-maheswariarthamegah-regional|maheswariarthamegahregional123|MAHESWARI ARTHA MEGAH, PT|regional
-mandalaputra-jabojabar|mandalaputrajabojabar123|MANDALA PUTRA, PT|jabojabar
-marsakaninabestari-regional|marsakaninabestariregional123|MARSA KANINA BESTARI, PT|regional
-melesatprimanusantara-regional|melesatprimanusantararegional123|MELESAT PRIMA NUSANTARA, PT|regional
-mitrakreasindosinergitama-jabo|mitrakreasindosinergitamajabo123|MITRA KREASINDO SINERGITAMA, PT|jabo
-mitrakreasindosinergitama-regional|mitrakreasindosinergitamaregional123|MITRA KREASINDO SINERGITAMA, PT|regional
-naertunasindonesia-regional|naertunasindonesiaregional123|NAER TUNAS INDONESIA, PT|regional
-natajayaelektro-jabo|natajayaelektrojabo123|NATA JAYA ELEKTRO, PT|jabo
-natajayaelektro-regional|natajayaelektroregional123|NATA JAYA ELEKTRO, PT|regional
-nusantarainformateknologi-regional|nusantarainformateknologiregional123|NUSANTARA INFORMA TEKNOLOGI, PT|regional
-onara-jabo|onarajabo123|Onara|jabo
-pancaranlangit-jabo|pancaranlangitjabo123|PANCARAN LANGIT, PT|jabo
-pancaranlangit-regional|pancaranlangitregional123|PANCARAN LANGIT, PT|regional
-pilargapuranusa-regional|pilargapuranusaregional123|PILAR GAPURA NUSA, PT|regional
-pragatamakmurpersada-regional|pragatamakmurpersadaregional123|PRAGATA MAKMUR PERSADA, PT|regional
-richton-regional|richtonregional123|RICHTON, PT|regional
-riskiprimasakti-regional|riskiprimasaktiregional123|RISKI PRIMA SAKTI, PT|regional
-sabaprimakonstruksi-jabo|sabaprimakonstruksijabo123|SABA PRIMA KONSTRUKSI, PT|jabo
-sabaprimakonstruksi-regional|sabaprimakonstruksiregional123|SABA PRIMA KONSTRUKSI, PT|regional
-sumbersolusitelkoperkasa-regional|sumbersolusitelkoperkasaregional123|SUMBERSOLUSI TELKO PERKASA, PT|regional
-technologykaryamandiri-regional|technologykaryamandiriregional123|TECHNOLOGY KARYA MANDIRI, PT|regional
-teknotamaprakarsamulia-regional|teknotamaprakarsamuliaregional123|TEKNOTAMA PRAKARSA MULIA, PT|regional
-transdataglobalnetwork-regional|transdataglobalnetworkregional123|TRANSDATA GLOBAL NETWORK, PT|regional
-vendorassign-jabojabar|vendorassignjabojabar123|VENDOR ASSIGN|jabojabar
-zteindonesia-jabo|zteindonesiajabo123|ZTE INDONESIA, PT|jabo
-zteindonesia-regional|zteindonesiaregional123|ZTE INDONESIA, PT|regional
+airwaveajiperkasa-jabo|seed-airwaveajiperkasa-jabo-2026|26c0e7a4c6f7dc4a0051f804ab4afe2c26ced0d3212c40874a576b8fa9d4c339|AIRWAVE AJI PERKASA, PT|jabo
+airwaveajiperkasa-regional|seed-airwaveajiperkasa-regional-2026|37509cc305134a63f0ec85efc3e11db6c632a867496b141de6939a790c3168bf|AIRWAVE AJI PERKASA, PT|regional
+airi-jabo|seed-airi-jabo-2026|a1228cd7c1716328a412aad7836c7c8d54279b750457f6afaea908d5f6972ead|Airi|jabo
+airi-regional|seed-airi-regional-2026|308c8cecdfcc0687372cee86d0ed9a004c1dab0fac335c339e27c4cb2b5680f5|Airi|regional
+andrinateknologiindonesia-jabojabar|seed-andrinateknologiindonesia-jabojabar-2026|b6c9d8b58649ca1ae6744b513b620ab99d39366b22b43b60c26247c4000fd22e|ANDRINA TEKNOLOGI INDONESIA, PT|jabojabar
+anekajayalanggengsentosa-jabo|seed-anekajayalanggengsentosa-jabo-2026|56e95517cd0dcd1dd834ce40b101f64ff2fc046b4f87ce339f165c828800dd4b|ANEKA JAYA LANGGENG SENTOSA, PT|jabo
+anugrahterangpersada-jabojabar|seed-anugrahterangpersada-jabojabar-2026|c97eeefef20e438e12c56af94088d28256ecdb87b5bcda805b304aa5ba7ef557|ANUGRAH TERANG PERSADA, PT|jabojabar
+bcm-jabo|seed-bcm-jabo-2026|55be7b6cd5a4621b1b40e7eb71bc4ffa8c758e343516d277126f7774216c37ac|BCM|jabo
+catursekawan-jabojabar|seed-catursekawan-jabojabar-2026|407119d0033000f0107c703f30a201b0d5d9197e98e50af542cf9532ab6b4c9a|CATUR SEKAWAN, PT|jabojabar
+cemerlanglintaspersada-jabo|seed-cemerlanglintaspersada-jabo-2026|f2886231b80cd138befdba0a72f68742d41a3ff461aad0c7dbd2b09ada0ceb84|CEMERLANG LINTAS PERSADA, PT|jabo
+ciptadayaselaras-regional|seed-ciptadayaselaras-regional-2026|a880121eac871f4b21a3802c0a6163a2abbcadaf1635de9f214e2526ff3e8e1a|CIPTA DAYA SELARAS, PT|regional
+dayakomunikasiinternasional-jabojabar|seed-dayakomunikasiinternasional-jabojabar-2026|31fb7d8224cb4d8efdbd2d1be59e9e4408921e96efac84240f09abc0bc779905|DAYA KOMUNIKASI INTERNASIONAL, PT|jabojabar
+fajarmitrakridaabadi-regional|seed-fajarmitrakridaabadi-regional-2026|3533481b35219dbabe2a1ecf6eee3a2af4de02b08d048eb1d6ba14cbccf9feeb|FAJAR MITRA KRIDA ABADI, PT|regional
+globalmultipowerindonesia-regional|seed-globalmultipowerindonesia-regional-2026|e505183b0b0917afc2ac38b6e6d11cff8bece450c91a9be978787964bc854f37|GLOBAL MULTIPOWER INDONESIA, PT|regional
+jmm-jabo|seed-jmm-jabo-2026|015d6a0f0d4b451994e8a8f5c371b91276b99d4b206aaa4ecdadac8f3c85609b|JMM|jabo
+jmm-regional|seed-jmm-regional-2026|74424c49e72b043ebc154f65a95f83a97e934164c6e5a920a8fee752258de161|JMM|regional
+jga-regional|seed-jga-regional-2026|a4565e0c151eacaa1019008a9690c311bc5564b031b0966bb1011c30a1e92550|JGA|regional
+jip-jabo|seed-jip-jabo-2026|54b5cc69d0e1c81d7123f364d400287a1d25d2d30d4446ac58e72e50bc300b55|JIP|jabo
+jip-regional|seed-jip-regional-2026|57f1c7c0fe8c1eb1aa90c1c27bd585745267a6e865bf587b073a5a6992b893ae|JIP|regional
+magnaenergiindonusa-regional|seed-magnaenergiindonusa-regional-2026|5d024519170db6277b66fc4ef5c0afeb9c034ff9ff4d137cbf30e53fc05910b8|MAGNA ENERGI INDONUSA, PT|regional
+maheswariarthamegah-regional|seed-maheswariarthamegah-regional-2026|107a25d691e66c79e00698c2e8f6b6b41c49587f37ca7f7e7dce883525ac07f4|MAHESWARI ARTHA MEGAH, PT|regional
+mandalaputra-jabojabar|seed-mandalaputra-jabojabar-2026|6cdd8926125a4e3b57c589004cea55c45f6d718e18a1d9170cd272b84c5df998|MANDALA PUTRA, PT|jabojabar
+marsakaninabestari-regional|seed-marsakaninabestari-regional-2026|eba8bb8433ab482bc5381fe1bcd86d9c1d2f0a7f6006f982a1c895677240e2a2|MARSA KANINA BESTARI, PT|regional
+melesatprimanusantara-regional|seed-melesatprimanusantara-regional-2026|6ac51f8083bbef62b73d14dd8aad2476d6f43512a6146f4fdc3834ec93a7dbe0|MELESAT PRIMA NUSANTARA, PT|regional
+mitrakreasindosinergitama-jabo|seed-mitrakreasindosinergitama-jabo-2026|f561a711adf6f20eb78a22d182c28c6d8cc3ac9a72525bb4834bef9f2465d277|MITRA KREASINDO SINERGITAMA, PT|jabo
+mitrakreasindosinergitama-regional|seed-mitrakreasindosinergitama-regional-2026|0f627b56920d3022fbebbe025aaf77bf8321ac7583f885deb2e4b8cbf6767e9d|MITRA KREASINDO SINERGITAMA, PT|regional
+naertunasindonesia-regional|seed-naertunasindonesia-regional-2026|f3731f86add1efeac4ad9fa7bd883969f8f654cfe27cc1733371fdcef895cdb9|NAER TUNAS INDONESIA, PT|regional
+natajayaelektro-jabo|seed-natajayaelektro-jabo-2026|f53fa813addba5ec4bb55722141f384cc8bfa5bd45542c855dda59cf9997ce6f|NATA JAYA ELEKTRO, PT|jabo
+natajayaelektro-regional|seed-natajayaelektro-regional-2026|e1b6ba9ffee0492c9c0a1800f0e15a8d30f0f987ed7e3e07b67a069aad15dc11|NATA JAYA ELEKTRO, PT|regional
+nusantarainformateknologi-regional|seed-nusantarainformateknologi-regional-2026|e31ba80657fa9c4fa61adfdfdec87595d88bc38d8d06cafba6c6052552af369b|NUSANTARA INFORMA TEKNOLOGI, PT|regional
+onara-jabo|seed-onara-jabo-2026|1ed384d5f9cd24ff722a45d84f347872bdf393aaf584d067b06f9ee00e43ad4f|Onara|jabo
+pancaranlangit-jabo|seed-pancaranlangit-jabo-2026|2b0dede6944c67d76262c6fc7f6434178b3754fae3152826c3bb3fbbbcbea78d|PANCARAN LANGIT, PT|jabo
+pancaranlangit-regional|seed-pancaranlangit-regional-2026|1b9438f074f532aba9807daae9c15ca9d4fcbf36709b7a4a4047b2725cb7804f|PANCARAN LANGIT, PT|regional
+pilargapuranusa-regional|seed-pilargapuranusa-regional-2026|4ceba1213bad9bab59a413bc5e8f113ac7058a58f289842edf069a037e33bdfd|PILAR GAPURA NUSA, PT|regional
+pragatamakmurpersada-regional|seed-pragatamakmurpersada-regional-2026|6dae6bc5337ac0b8721a7bcc018c3209f2206a50b92869e8e052e118bdaf014a|PRAGATA MAKMUR PERSADA, PT|regional
+richton-regional|seed-richton-regional-2026|0104e37821dda995343e838f37090bd13824a91a161d042ffeab3cb1c2d877f8|RICHTON, PT|regional
+riskiprimasakti-regional|seed-riskiprimasakti-regional-2026|b3e844ce0984f1d2fff470876d44e1856e3a207c0d8c266f2cfaec30ed865e74|RISKI PRIMA SAKTI, PT|regional
+sabaprimakonstruksi-jabo|seed-sabaprimakonstruksi-jabo-2026|d6de17a51f6f13767254376f20c0a5a82c69a3446978972d5f7bd57b008dcfb4|SABA PRIMA KONSTRUKSI, PT|jabo
+sabaprimakonstruksi-regional|seed-sabaprimakonstruksi-regional-2026|2d5cad51d6fe1e01ce20b16ba9d293783d520e2541155aa16520c8146e8c413f|SABA PRIMA KONSTRUKSI, PT|regional
+sumbersolusitelkoperkasa-regional|seed-sumbersolusitelkoperkasa-regional-2026|97fa15e73dfaa530df69859a1652e87f1de049f92e7cb342200b3e459d26a6e1|SUMBERSOLUSI TELKO PERKASA, PT|regional
+technologykaryamandiri-regional|seed-technologykaryamandiri-regional-2026|9277ea2712f92a74a2c6e504b8d8ed4630c575b6cd591d545f6c5e428bb2f2f5|TECHNOLOGY KARYA MANDIRI, PT|regional
+teknotamaprakarsamulia-regional|seed-teknotamaprakarsamulia-regional-2026|03f6d222a6768781f0b3875ad697b726ada44a50963cb9d26613c916acba3f1a|TEKNOTAMA PRAKARSA MULIA, PT|regional
+transdataglobalnetwork-regional|seed-transdataglobalnetwork-regional-2026|2c7b5e02fa48f2c391f18d4d3f0f384a6df45b6fccbc7967441915baa2498c48|TRANSDATA GLOBAL NETWORK, PT|regional
+vendorassign-jabojabar|seed-vendorassign-jabojabar-2026|ed2c778f28a2db382e1605484c73e92cc631d42233a273d81b0e17aaecad2f3d|VENDOR ASSIGN|jabojabar
+zteindonesia-jabo|seed-zteindonesia-jabo-2026|69f633a35bc6a0523c635197b5b518827a14fdbe9584d5abc075a8ca19a449fe|ZTE INDONESIA, PT|jabo
+zteindonesia-regional|seed-zteindonesia-regional-2026|e9877587562a2a86ba56c69784d39040ce66c8f05af6364330a0da77428a281e|ZTE INDONESIA, PT|regional
 `.trim();
 
 export const VENDOR_SEED_ACCOUNTS = VENDOR_ACCOUNT_ROWS.split("\n").map((row, index) => {
-  const [username, password, vendorName, regionScope] = row.split("|");
-  return { id: `usr-vendor-${String(index + 10).padStart(3, "0")}`, username, password, name: vendorName, role: "vendor_user" as const, vendorName, regionScope };
-});
+  const [username, salt, passwordHash, vendorName, regionScope] = row.split("|");
+  return { id: `usr-vendor-${String(index + 10).padStart(3, "0")}`, username, name: vendorName, role: "vendor_user" as const, vendorName, regionScope, salt, passwordHash };
+}) satisfies VendorSeedAccount[];

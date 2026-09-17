@@ -5,6 +5,8 @@ import { activationRequests } from "@/db/schema";
 import { ensureActivationRequestsTable, getSessionUser } from "@/lib/auth";
 
 import { candidateSlots, SLOT_CAPACITY } from "@/lib/scheduling";
+const VALID_REGION_SCOPES = new Set(["jabo", "jabojabar", "regional"]);
+const NO_RFA_ACCESS_MEDIA = new Set(["Interkoneksi", "Existing Link"]);
 function normalizeRegionScope(area: string) {
   const value = area.trim().toLowerCase();
   if (value.includes("jabo") && value.includes("jabar")) return "jabojabar";
@@ -16,10 +18,18 @@ function requestRegion(row: { regionScope?: string; area: string }) {
   return String(row.regionScope || normalizeRegionScope(row.area)).trim().toLowerCase();
 }
 function capacity(date: string, slot: string, excludeId = "") {
-  return sql`(SELECT count(*) FROM activation_requests WHERE activation_date = ${date} AND time_slot = ${slot} AND id != ${excludeId}) < ${SLOT_CAPACITY}`;
+  return sql`(SELECT count(*) FROM activation_requests WHERE activation_date = ${date} AND time_slot = ${slot} AND status != 'Completed' AND id != ${excludeId}) < ${SLOT_CAPACITY}`;
 }
-function validSchedule(date: string, slot: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date && candidateSlots(slot).length > 0;
+function picCapacity(pic: string, excludeId = "") {
+  return sql`(SELECT count(*) FROM activation_requests WHERE provisioning_pic = ${pic} AND status != 'Completed' AND id != ${excludeId}) < 7`;
+}
+function validSchedule(date: string, slot: string, now = getWibClock()) {
+  const nowMinutes = now.hour * 60 + now.minute;
+  return /^\d{4}-\d{2}-\d{2}$/.test(date)
+    && !Number.isNaN(Date.parse(date))
+    && new Date(date).toISOString().slice(0, 10) === date
+    && candidateSlots(slot).length > 0
+    && (date > now.date || (date === now.date && nowMinutes >= slotStartMinutes(slot)));
 }
 const fullResponse = () => NextResponse.json({ error: "Slot yang dipilih dan slot berikutnya penuh. Pilih slot sebelumnya atau tanggal lain." }, { status: 409 });
 const required = [
@@ -69,14 +79,17 @@ export async function GET(request: Request) {
       );
     }
     const db = getDb();
-    let rows = await db
+    const allRows = await db
       .select()
       .from(activationRequests)
       .orderBy(desc(activationRequests.createdAt));
-    if (user.role === "vendor_user" && user.vendorName.trim()) {
+    let rows = allRows;
+    if (user.role === "vendor_user") {
       const vendor = user.vendorName.trim().toLowerCase();
       const region = String(user.regionScope ?? "").trim().toLowerCase();
-      rows = rows.filter((row) => row.vendorName.trim().toLowerCase() === vendor && (!region || requestRegion(row) === region));
+      rows = vendor && VALID_REGION_SCOPES.has(region)
+        ? rows.filter((row) => row.vendorName.trim().toLowerCase() === vendor && requestRegion(row) === region)
+        : [];
     }
     const now = getWibClock();
     const nowMinutes = now.hour * 60 + now.minute;
@@ -98,7 +111,18 @@ export async function GET(request: Request) {
         ),
       );
     }
-    return NextResponse.json({ requests: normalized });
+    const picCounts = allRows.reduce((counts, row) => {
+      if (row.status !== "Completed") counts[row.provisioningPic] = (counts[row.provisioningPic] ?? 0) + 1;
+      return counts;
+    }, {} as Record<string, number>);
+    const slotCounts = allRows.reduce((counts, row) => {
+      if (row.status !== "Completed") {
+        const key = `${row.activationDate}|${row.timeSlot}`;
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
+      return counts;
+    }, {} as Record<string, number>);
+    return NextResponse.json({ requests: normalized, picCounts, slotCounts, serverNow: now });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("Cloudflare D1 binding") || message.includes("DB is unavailable")) {
@@ -124,8 +148,15 @@ export async function POST(request: Request) {
     }
     const wibNow = getWibClock();
     const body = (await request.json()) as any;
+    const vendorName = user.role === "vendor_user" ? user.vendorName.trim() : String(body.vendorName ?? "").trim();
+    const regionScope = user.role === "vendor_user"
+      ? String(user.regionScope ?? "").trim().toLowerCase()
+      : normalizeRegionScope(String(body.area ?? ""));
+    if (user.role === "vendor_user" && (!vendorName || !VALID_REGION_SCOPES.has(regionScope))) {
+      return NextResponse.json({ error: "Identitas vendor atau region akun tidak valid." }, { status: 403 });
+    }
     const missing = required.find((key) => !String(body[key] ?? "").trim());
-    const needsRfa = !["Interkoneksi", "Existing Link"].includes(body.accessMedia);
+    const needsRfa = !NO_RFA_ACCESS_MEDIA.has(String(body.accessMedia));
     const missingRfa = needsRfa && rfaFields.find((key) => !String(body[key] ?? "").trim());
     const missingSwitchData = Boolean(body.installSwitch) && (
       !String(body.switchBrand ?? "").trim() || !String(body.vlanSwitch ?? "").trim()
@@ -156,8 +187,8 @@ export async function POST(request: Request) {
       activationDate: body.activationDate,
       timeSlot: body.timeSlot,
       area: body.area.trim(),
-      vendorName: body.vendorName.trim(),
-      regionScope: String(body.regionScope || normalizeRegionScope(body.area)).trim().toLowerCase(),
+      vendorName,
+      regionScope,
       accessMedia: body.accessMedia,
       serviceType: body.serviceType,
       workType: String(body.workType ?? "").trim(),
@@ -197,6 +228,8 @@ export async function POST(request: Request) {
       whatsappMessageId: "",
       notes: String(body.notes ?? "").trim(),
     };
+    const picAvailable = await getDb().all(sql`SELECT 1 WHERE ${picCapacity(row.provisioningPic)}`);
+    if (!picAvailable.length) return NextResponse.json({ error: "PIC Provisioning sudah mencapai batas 7 request aktif." }, { status: 409 });
     const columns = getTableColumns(activationRequests);
     for (const slot of candidateSlots(row.timeSlot)) {
       row.timeSlot = slot;
@@ -204,7 +237,7 @@ export async function POST(request: Request) {
       const names = sql.join(entries.map(([key]) => sql.identifier(columns[key].name)), sql`, `);
       const values = sql.join(entries.map(([, value]) => sql`${typeof value === "boolean" ? Number(value) : value}`), sql`, `);
       // One statement makes capacity enforcement atomic across concurrent submissions.
-      const inserted = await getDb().all(sql`INSERT INTO activation_requests (${names}) SELECT ${values} WHERE ${capacity(row.activationDate, slot)} RETURNING id`);
+      const inserted = await getDb().all(sql`INSERT INTO activation_requests (${names}) SELECT ${values} WHERE ${capacity(row.activationDate, slot)} AND ${picCapacity(row.provisioningPic)} RETURNING id`);
       if (inserted.length) return NextResponse.json({ request: row }, { status: 201 });
     }
     return fullResponse();
@@ -273,7 +306,7 @@ export async function PATCH(request: Request) {
       update.switchBrand = body.installSwitch ? String(body.switchBrand).trim() : "";
       update.vlanSwitch = body.installSwitch ? String(body.vlanSwitch).trim() : "";
     }
-    const skipsRfa = ["Interkoneksi", "Existing Link"].includes(body.accessMedia);
+    const skipsRfa = NO_RFA_ACCESS_MEDIA.has(String(body.accessMedia));
     for (const key of editable) {
       if (body[key] === undefined) continue;
       const value = String(body[key] ?? "").trim();
@@ -304,8 +337,8 @@ export async function PATCH(request: Request) {
     if (user.role === "vendor_user") {
       const vendor = user.vendorName.trim().toLowerCase();
       const region = String(user.regionScope ?? "").trim().toLowerCase();
-      const allowed = ["id", "status", "activationDate", "timeSlot", "pendingReason", "rescheduleReason"];
-      if (current.vendorName.trim().toLowerCase() !== vendor || (region && requestRegion(current) !== region) || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
+      const allowed = ["id", "status", "activationDate", "timeSlot", "rescheduleReason"];
+      if (!vendor || !VALID_REGION_SCOPES.has(region) || current.vendorName.trim().toLowerCase() !== vendor || requestRegion(current) !== region || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
         return NextResponse.json({ error: "Vendor hanya dapat mengajukan reschedule untuk request miliknya." }, { status: 403 });
       }
     }
@@ -313,7 +346,7 @@ export async function PATCH(request: Request) {
     const isPicReschedule = !isVendorReschedule && body.status === "Pending" && typeof body.picRescheduleReason === "string";
     const date = String(update.activationDate ?? current.activationDate);
     const requestedSlot = String(update.timeSlot ?? current.timeSlot);
-    if (!validSchedule(date, requestedSlot)) return NextResponse.json({ error: "Tanggal atau slot tidak valid." }, { status: 400 });
+    if (!validSchedule(date, requestedSlot)) return NextResponse.json({ error: "Tanggal atau slot belum dibuka atau tidak valid." }, { status: 400 });
     if (isPicReschedule) {
       update.picRescheduleDate = date;
       update.picRescheduleTimeSlot = requestedSlot;
@@ -323,10 +356,16 @@ export async function PATCH(request: Request) {
       update.vendorRescheduleTimeSlot = requestedSlot;
     }
     const changed = date !== current.activationDate || requestedSlot !== current.timeSlot;
+    const nextPic = String(update.provisioningPic ?? current.provisioningPic);
+    const changingPic = nextPic !== current.provisioningPic;
+    if (changingPic) {
+      const picAvailable = await db.all(sql`SELECT 1 WHERE ${picCapacity(nextPic, body.id)}`);
+      if (!picAvailable.length) return NextResponse.json({ error: "PIC Provisioning sudah mencapai batas 7 request aktif." }, { status: 409 });
+    }
     for (const slot of changed ? candidateSlots(requestedSlot) : [current.timeSlot]) {
       const [updated] = await db.update(activationRequests)
         .set(changed ? { ...update, timeSlot: slot } : update)
-        .where(and(eq(activationRequests.id, body.id), changed ? capacity(date, slot, body.id) : undefined)).returning();
+        .where(and(eq(activationRequests.id, body.id), changed ? capacity(date, slot, body.id) : undefined, changingPic ? picCapacity(nextPic, body.id) : undefined)).returning();
       if (updated) return NextResponse.json({ request: updated });
     }
     return fullResponse();

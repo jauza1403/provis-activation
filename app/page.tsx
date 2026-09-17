@@ -206,6 +206,7 @@ const switchEmailCc = [
   "provisioning@iforte.co.id",
   "presales@iforte.co.id",
 ];
+const noRfaAccessMedia = ["Interkoneksi", "Existing Link"];
 const statuses = [
   "Idle",
   "On Progress",
@@ -231,6 +232,17 @@ function getWibClock(date = new Date()) {
     hour: Number(value("hour")),
     minute: Number(value("minute")),
   };
+}
+
+function slotStartMinutes(slot: string) {
+  const match = slot.match(/^(\d{2})\.(\d{2})/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
+}
+
+function isSlotOpen(slot: string, date: string, serverNow: { date: string; hour: number; minute: number }) {
+  if (!date || date > serverNow.date) return true;
+  if (date < serverNow.date) return false;
+  return serverNow.hour * 60 + serverNow.minute >= slotStartMinutes(slot);
 }
 
 function formatActivationDate(value: string) {
@@ -428,6 +440,9 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<"dashboard" | "form" | "urgentForm" | "urgent" | "pending" | "completed">("dashboard");
   const [requests, setRequests] = useState<ActivationRequest[]>([]);
+  const [picCounts, setPicCounts] = useState<Record<string, number>>({});
+  const [slotCounts, setSlotCounts] = useState<Record<string, number>>({});
+  const [serverNow, setServerNow] = useState(() => getWibClock());
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua status");
   const [form, setForm] = useState(emptyForm);
@@ -472,11 +487,16 @@ export default function Home() {
     }
     if (response.status === 503) {
       setRequests([]);
+      setPicCounts({});
+      setSlotCounts({});
       return;
     }
     const data = (await response.json()) as any;
     if (!response.ok) throw new Error(data.error);
     setRequests(data.requests ?? []);
+    setPicCounts(data.picCounts ?? {});
+    setSlotCounts(data.slotCounts ?? {});
+    if (data.serverNow) setServerNow(data.serverNow);
   }
 
   useEffect(() => {
@@ -745,7 +765,6 @@ export default function Home() {
           status: vendorReschedule ? "Reschedule" : "Pending",
           activationDate: rescheduleDate,
           timeSlot: rescheduleSlot,
-          pendingReason: vendorReschedule ? "" : rescheduleTarget.pendingReason,
           ...(vendorReschedule ? { rescheduleReason: rescheduleReason.trim() } : { picRescheduleReason: rescheduleReason.trim() }),
         }),
       });
@@ -1303,6 +1322,9 @@ export default function Home() {
           ) : view === "form" || view === "urgentForm" ? (
             <RequestForm
               requests={requests.filter((item) => item.id !== editingId)}
+              picCounts={picCounts}
+              slotCounts={slotCounts}
+              serverNow={serverNow}
               form={form}
               setForm={setForm}
               busy={busy}
@@ -1493,14 +1515,19 @@ export default function Home() {
             <input
               type="date"
               required
+              min={serverNow.date}
               value={rescheduleDate}
-              onChange={(event) => setRescheduleDate(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setRescheduleDate(value);
+                if (!isSlotOpen(rescheduleSlot, value, serverNow)) setRescheduleSlot(slots.find((slot) => isSlotOpen(slot, value, serverNow)) ?? slots[0]);
+              }}
             />
           </label>
           <label className="reschedule-field">
             <span>Time Aktivasi Baru</span>
             <select value={rescheduleSlot} onChange={(event) => setRescheduleSlot(event.target.value)}>
-              {slots.map((slot) => <option key={slot}>{slot}</option>)}
+              {slots.map((slot) => <option key={slot} disabled={!isSlotOpen(slot, rescheduleDate, serverNow)}>{slot}</option>)}
             </select>
           </label>
           <label className="reschedule-field">
@@ -1527,12 +1554,16 @@ export default function Home() {
           </DialogHeader>
           <label className="reschedule-field">
             <span>Usulan Tanggal Aktivasi</span>
-            <input type="date" required value={pendingDate} onChange={(event) => setPendingDate(event.target.value)} />
+            <input type="date" required min={serverNow.date} value={pendingDate} onChange={(event) => {
+              const value = event.target.value;
+              setPendingDate(value);
+              if (!isSlotOpen(pendingSlot, value, serverNow)) setPendingSlot(slots.find((slot) => isSlotOpen(slot, value, serverNow)) ?? slots[0]);
+            }} />
           </label>
           <label className="reschedule-field">
             <span>Usulan Time</span>
             <select value={pendingSlot} onChange={(event) => setPendingSlot(event.target.value)}>
-              {slots.map((slot) => <option key={slot}>{slot}</option>)}
+              {slots.map((slot) => <option key={slot} disabled={!isSlotOpen(slot, pendingDate, serverNow)}>{slot}</option>)}
             </select>
           </label>
           <label className="reschedule-field">
@@ -1863,7 +1894,7 @@ function RequestDetail({
             <div className="detail-scroll">
               <DetailSection title="Data Customer">
                 <DetailItem label="Nama Customer" value={request.customerName || "-"} wide />
-                <DetailItem label="Service Type" value={request.serviceType || "Belum ditentukan"} wide />
+                <DetailItem label="Product Type" value={request.serviceType || "Belum ditentukan"} wide />
                 <DetailItem
                   label="Work Type"
                   value={request.workType || [
@@ -2006,6 +2037,9 @@ function Metric({
 
 function RequestForm({
   requests,
+  picCounts,
+  slotCounts,
+  serverNow,
   form,
   setForm,
   busy,
@@ -2015,6 +2049,9 @@ function RequestForm({
   onCancel,
 }: {
   requests: ActivationRequest[];
+  picCounts: Record<string, number>;
+  slotCounts: Record<string, number>;
+  serverNow: { date: string; hour: number; minute: number };
   form: typeof emptyForm;
   setForm: React.Dispatch<React.SetStateAction<typeof emptyForm>>;
   busy: boolean;
@@ -2024,9 +2061,8 @@ function RequestForm({
   onCancel: () => void;
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const counts = Object.fromEntries(slots.map((slot) => [slot, requests.filter((item) => item.activationDate === form.activationDate && item.timeSlot === slot).length]));
-  const picCounts = Object.fromEntries(pics.map((pic) => [pic, requests.filter((item) => item.provisioningPic === pic && item.status !== "Completed").length]));
-  const effectiveSlot = form.activationDate ? candidateSlots(form.timeSlot).find((slot) => counts[slot] < SLOT_CAPACITY) ?? "" : form.timeSlot;
+  const counts = Object.fromEntries(slots.map((slot) => [slot, slotCounts[`${form.activationDate}|${slot}`] ?? 0]));
+  const effectiveSlot = form.activationDate ? candidateSlots(form.timeSlot).find((slot) => counts[slot] < SLOT_CAPACITY && isSlotOpen(slot, form.activationDate, serverNow)) ?? "" : form.timeSlot;
   const scheduleFull = Boolean(form.activationDate) && !effectiveSlot;
   useEffect(() => {
     if (effectiveSlot && effectiveSlot !== form.timeSlot) setForm((current) => ({ ...current, timeSlot: effectiveSlot }));
@@ -2035,7 +2071,7 @@ function RequestForm({
       const nextPic = pics.find((pic) => (picCounts[pic] ?? 0) < 7);
       if (nextPic) setForm((current) => ({ ...current, provisioningPic: nextPic }));
     }
-  }, [effectiveSlot, form.timeSlot, form.provisioningPic, picCounts, setForm]);
+  }, [effectiveSlot, form.timeSlot, form.provisioningPic, picCounts, slotCounts, setForm]);
   const input = (key: keyof typeof emptyForm) => ({
     value: (form[key] ?? "") as string | number,
     onChange: (
@@ -2080,10 +2116,10 @@ function RequestForm({
               <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
                 <PopoverTrigger asChild><button type="button" className="activation-date-trigger"><span>{form.activationDate ? formatActivationDate(form.activationDate) : "Pilih tanggal aktivasi"}</span><CalendarDays size={19} /></button></PopoverTrigger>
                 <PopoverContent className="activation-calendar-popover w-auto p-0" align="start">
-                  <Calendar className="activation-calendar" mode="single" selected={form.activationDate ? new Date(form.activationDate + "T00:00:00") : undefined} onSelect={(date) => {
+                  <Calendar className="activation-calendar" mode="single" disabled={{ before: new Date(`${serverNow.date}T00:00:00`) }} selected={form.activationDate ? new Date(form.activationDate + "T00:00:00") : undefined} onSelect={(date) => {
                     if (!date) return;
                     const value = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
-                    const next = slots.find((slot) => requests.filter((item) => item.activationDate === value && item.timeSlot === slot).length < SLOT_CAPACITY);
+                    const next = slots.find((slot) => (slotCounts[`${value}|${slot}`] ?? 0) < SLOT_CAPACITY && isSlotOpen(slot, value, serverNow));
                     setForm({ ...form, activationDate: value, timeSlot: next ?? slots[0] });
                     setCalendarOpen(false);
                   }} />
@@ -2092,10 +2128,14 @@ function RequestForm({
             </Field>
             <Field label="Time Aktivasi" wide>
               <div className="slot-grid">
-                {slots.map((slot, index) => <label key={slot} className={[effectiveSlot === slot ? "selected" : "", counts[slot] >= SLOT_CAPACITY ? "slot-full" : ""].join(" ")}>
-                  <input type="radio" name="slot" value={slot} disabled={!form.activationDate || counts[slot] >= SLOT_CAPACITY} checked={effectiveSlot === slot} onChange={(event) => setForm({ ...form, timeSlot: event.target.value })} />
-                  <b>Slot {index + 1}</b><span>{slot}</span><span>{form.activationDate ? counts[slot] + "/10 request" + (counts[slot] >= SLOT_CAPACITY ? " · Penuh" : "") : "Pilih tanggal dahulu"}</span>
-                </label>)}
+                {slots.map((slot, index) => {
+                  const slotOpen = isSlotOpen(slot, form.activationDate, serverNow);
+                  const slotFull = counts[slot] >= SLOT_CAPACITY;
+                  return <label key={slot} className={[effectiveSlot === slot ? "selected" : "", slotFull || !slotOpen ? "slot-full" : ""].join(" ")}>
+                    <input type="radio" name="slot" value={slot} disabled={!form.activationDate || slotFull || !slotOpen} checked={effectiveSlot === slot} onChange={(event) => setForm({ ...form, timeSlot: event.target.value })} />
+                    <b>Slot {index + 1}</b><span>{slot}</span><span>{form.activationDate ? slotFull ? counts[slot] + "/10 request · Penuh" : !slotOpen ? "Belum dibuka" : counts[slot] + "/10 request" : "Pilih tanggal dahulu"}</span>
+                  </label>;
+                })}
               </div>
             </Field>
             <p className="wide date-preview" role="status">{scheduleFull ? "Slot penuh. Pilih slot sebelumnya yang tersedia atau tanggal lain." : "Maksimal 10 request per slot. Slot penuh otomatis dialihkan ke slot berikutnya."}</p>
@@ -2251,7 +2291,7 @@ function RequestForm({
                 )}
               </div>
             </Field>
-            {!['Interkoneksi', 'Existing Link'].includes(form.accessMedia) && <>
+            {!noRfaAccessMedia.includes(form.accessMedia) && <>
             <Field label="Jumlah Core RFA">
               <input
                 required
@@ -2324,7 +2364,7 @@ function RequestForm({
               />
             </Field>
             </>}
-            {["Interkoneksi", "Existing Link"].includes(form.accessMedia) && (
+            {noRfaAccessMedia.includes(form.accessMedia) && (
               <div className="interconnection-note wide">
                 <ShieldCheck size={18} />
                 <span><b>Mode {form.accessMedia}</b> Data RFA tidak diwajibkan. Lengkapi perangkat yang akan dipasang.</span>

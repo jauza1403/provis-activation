@@ -56,8 +56,8 @@ Investigate and fix the shared-state problem between PIC Reschedule and Vendor R
 ## Spreadsheet sync work — not implemented yet
 
 - User wants every New Request and Urgent Request submission to append to the supplied spreadsheet in the same table/column order.
-- Spreadsheet link: `https://docs.google.com/spreadsheets/d/1e_Tjv5bM2gGHfCAbDHMtO3jcMOQ-hSRJYW4bYL97xAo/edit?gid=1251673368`
-- Spreadsheet ID: `1e_Tjv5bM2gGHfCAbDHMtO3jcMOQ-hSRJYW4bYL97xAo`.
+- Spreadsheet link: `[configure the approved spreadsheet URL outside the repository]`
+- Spreadsheet ID: `[configure via the GOOGLE_SHEET_ID Cloudflare secret]`.
 - Target tab is expected to be `SCHEDULE AKTIVATION`; confirm the tab name for gid `1251673368`.
 - Workbook inspection found main tab `SCHEDULE AKTIVATION` with roughly 67 columns, plus `DATA`, `SCHEDULE PIKET`, `Sheet3`, `NOTED`, pivot/supporting tabs, and AutoCrat configuration tabs.
 - The workbook has the requested columns including Email Address, Hari, Tanggal Aktivasi, Time Slot Aktivasi, Area/Regional, Vendor, Akses, Bukti Koordinasi, customer PIC, PIC Aktivasi Mitra, PIC Project, Opportunity Number, Customer, Site ID, Subscription ID, Site Name, Work Order, Produk Layanan, Work Type, Bandwidth IX, Bandwidth IIX, and Local Loop.
@@ -84,12 +84,8 @@ Investigate and fix the shared-state problem between PIC Reschedule and Vendor R
 - It generates 46 fake request records covering Regular/Urgent, Pending/approval/completed/active states, all Work Types, all Akses Media values, all Product Types, slots 1–4, Install Switch cases, and varied vendors/PICs.
 - The seed script distributes matching company+region requests across the vendor accounts. Rerun locally with:
   `node scripts/seed-demo-requests.mjs`
-- New seeded account was added in `lib/auth.ts`:
-  - username: `airi`
-  - password: `airi123`
-  - display/vendor name: `AIRI`
-  - role: `vendor_user`
-- Existing accounts and roles should not be changed.
+- The superseded standalone `airi` test account is retired. Current AIRI access is through the per-region accounts in `lib/vendor-account-seeds.ts`.
+- Account passwords are stored as PBKDF2 hashes with per-account salts; do not document plaintext credentials here.
 
 ## Later checklist
 

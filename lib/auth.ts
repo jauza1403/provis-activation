@@ -14,6 +14,11 @@ export type AuthUser = {
   regionScope: string;
 };
 
+type SeedAccount = AuthUser & {
+  salt: string;
+  passwordHash: string;
+};
+
 export const COOKIE_NAME = "auth_session";
 const SESSION_SECRET = "iforte-provisioning-activation-portal-rbac-secret-key-2026";
 export const SESSION_MAX_AGE = 60 * 60 * 24; // 24 hours
@@ -22,32 +27,25 @@ export const SEED_ACCOUNTS = [
   {
     id: "usr-super-001",
     username: "superuser",
-    password: "superuser123",
     name: "Super Administrator",
     role: "superuser" as UserRole,
     vendorName: "",
     regionScope: "",
+    salt: "seed-superuser-2026",
+    passwordHash: "15ccd838f2fc841d1918554201fa08036fc57951f6ef8deafeb9fd0597448f2a",
   },
   {
     id: "usr-project-002",
     username: "projectuser",
-    password: "projectuser123",
     name: "Project Coordinator",
     role: "project_user" as UserRole,
     vendorName: "",
     regionScope: "",
-  },
-  {
-    id: "usr-vendor-003",
-    username: "vendoruser",
-    password: "vendoruser123",
-    name: "Vendor User",
-    role: "vendor_user" as UserRole,
-    vendorName: "",
-    regionScope: "",
+    salt: "seed-projectuser-2026",
+    passwordHash: "e29188d3417ce749b4f4b3ad9db6636519d75dd33ee57c400607b8b35f225924",
   },
   ...VENDOR_SEED_ACCOUNTS,
-];
+] satisfies SeedAccount[];
 
 export async function hashPassword(password: string, salt: string): Promise<string> {
   const enc = new TextEncoder();
@@ -205,19 +203,28 @@ export async function ensureUsersTableAndSeed(): Promise<void> {
 
     await db.run(sql`ALTER TABLE users ADD COLUMN region_scope TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
 
+    // Retire superseded shared/test accounts before seeding the current account set.
+    await db.delete(users).where(eq(users.username, "airi"));
+    await db.delete(users).where(eq(users.username, "vendoruser"));
+
     for (const seed of SEED_ACCOUNTS) {
       const [existing] = await db
         .select()
         .from(users)
         .where(eq(users.username, seed.username));
       if (!existing) {
-        const salt = crypto.randomUUID();
-        const passwordHash = await hashPassword(seed.password, salt);
+        const [idOwner] = await db
+          .select({ username: users.username })
+          .from(users)
+          .where(eq(users.id, seed.id));
+        const seedId = idOwner && idOwner.username !== seed.username
+          ? `${seed.id}-${seed.username}`
+          : seed.id;
         await db.insert(users).values({
-          id: seed.id,
+          id: seedId,
           username: seed.username,
-          passwordHash,
-          salt,
+          passwordHash: seed.passwordHash,
+          salt: seed.salt,
           name: seed.name,
           role: seed.role,
           vendorName: seed.vendorName,
@@ -231,8 +238,6 @@ export async function ensureUsersTableAndSeed(): Promise<void> {
           .where(eq(users.id, existing.id));
       }
     }
-    // Remove the superseded standalone AIRI test account; the CSV now defines airi-jabo and airi-regional.
-    await db.delete(users).where(eq(users.username, "airi"));
     isDbInitialized = true;
   } catch (err) {
     console.warn("D1 users table init/seed skipped, will use memory seed accounts:", err);
@@ -353,7 +358,7 @@ export async function authenticateUser(
 
   // 2. Direct fallback to seed accounts for maximum robustness
   const seed = SEED_ACCOUNTS.find((u) => u.username === username);
-  if (seed && seed.password === password) {
+  if (seed && (await hashPassword(password, seed.salt)) === seed.passwordHash) {
     return {
       id: seed.id,
       username: seed.username,
