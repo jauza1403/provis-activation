@@ -106,6 +106,12 @@ type ActivationRequest = {
   picRescheduleTimeSlot: string;
   vendorRescheduleDate: string;
   vendorRescheduleTimeSlot: string;
+  rescheduleApprovalStatus: string;
+  rescheduleRequestedBy: string;
+  rescheduleOriginalStatus: string;
+  rescheduleApprovalReason: string;
+  rescheduleApprovedBy: string;
+  rescheduleApprovedAt: string;
   requestType: string;
   approvalStatus: string;
   approvalCode: string;
@@ -463,6 +469,11 @@ export default function Home() {
   const [rescheduleSlot, setRescheduleSlot] = useState(slots[0]);
   const [rescheduleReason, setRescheduleReason] = useState("");
   const [rescheduleMode, setRescheduleMode] = useState<"pic" | "vendor">("pic");
+  const [rescheduleApprovalTarget, setRescheduleApprovalTarget] = useState<ActivationRequest | null>(null);
+  const [rescheduleApprovalDate, setRescheduleApprovalDate] = useState("");
+  const [rescheduleApprovalSlot, setRescheduleApprovalSlot] = useState(slots[0]);
+  const [rescheduleApprovalReason, setRescheduleApprovalReason] = useState("");
+  const [rescheduleApprovalDecision, setRescheduleApprovalDecision] = useState<"Approved" | "Rejected">("Approved");
   const [switchEmailTarget, setSwitchEmailTarget] = useState<ActivationRequest | null>(null);
   const [pendingTarget, setPendingTarget] = useState<ActivationRequest | null>(null);
   const [pendingDate, setPendingDate] = useState("");
@@ -722,6 +733,42 @@ export default function Home() {
     setRescheduleMode(mode);
   }
 
+  function openRescheduleApproval(item: ActivationRequest, decision: "Approved" | "Rejected" = "Approved") {
+    setRescheduleApprovalTarget(item);
+    setRescheduleApprovalDate(item.rescheduleRequestedBy === "vendor" ? item.vendorRescheduleDate : item.picRescheduleDate);
+    setRescheduleApprovalSlot(item.rescheduleRequestedBy === "vendor" ? item.vendorRescheduleTimeSlot : item.picRescheduleTimeSlot);
+    setRescheduleApprovalReason("");
+    setRescheduleApprovalDecision(decision);
+  }
+
+  async function saveRescheduleApproval() {
+    if (!rescheduleApprovalTarget || !rescheduleApprovalReason.trim()) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/requests", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: rescheduleApprovalTarget.id,
+          rescheduleDecision: rescheduleApprovalDecision,
+          activationDate: rescheduleApprovalDate,
+          timeSlot: rescheduleApprovalSlot,
+          rescheduleApprovalReason: rescheduleApprovalReason.trim(),
+        }),
+      });
+      const data = (await response.json()) as any;
+      if (!response.ok) throw new Error(data.error);
+      setRequests((current) => current.map((item) => item.id === rescheduleApprovalTarget.id ? data.request : item));
+      setRescheduleApprovalTarget(null);
+      setRescheduleApprovalReason("");
+      setMessage(rescheduleApprovalDecision === "Approved" ? "Reschedule disetujui." : "Reschedule ditolak.", "success");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Approval reschedule gagal disimpan.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function savePending() {
     if (!pendingTarget || !pendingDate || !pendingSlot || !pendingReason.trim()) return;
     setBusy(true);
@@ -776,7 +823,7 @@ export default function Home() {
       setSelectedRequest((current) => current?.id === rescheduleTarget.id ? data.request : current);
       setRescheduleTarget(null);
       setRescheduleReason("");
-      setMessage(vendorReschedule ? "Vendor Reschedule berhasil diajukan." : "PIC Reschedule berhasil disimpan.", "success");
+      setMessage(vendorReschedule ? "Vendor Reschedule berhasil diajukan untuk approval PIC." : "PIC Reschedule berhasil diajukan untuk approval vendor.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Jadwal gagal diubah.");
     } finally {
@@ -943,7 +990,9 @@ export default function Home() {
   const completedForDate = completedDateFilter === "all"
     ? completedRequests
     : completedRequests.filter((r) => getCompletedDate(r) === completedDateFilter);
-  const pendingRequests = requests.filter((r) => r.status === "Pending");
+  const pendingRequests = currentUser?.role === "vendor_user"
+    ? requests.filter((r) => r.status === "Pending")
+    : requests.filter((r) => r.status === "Pending" || r.rescheduleApprovalStatus === "Pending PIC Approval");
   const urgentRequests = requests.filter((r) => r.approvalStatus === "Waiting Approval");
 
   if (authLoading) {
@@ -1371,6 +1420,7 @@ export default function Home() {
               requests={pendingRequests}
               onOpen={setSelectedRequest}
               onReschedule={openReschedule}
+              onReviewReschedule={openRescheduleApproval}
               vendorMode={currentUser?.role === "vendor_user"}
             />
           )}
@@ -1501,6 +1551,36 @@ export default function Home() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog open={Boolean(rescheduleApprovalTarget)} onOpenChange={(open) => !open && setRescheduleApprovalTarget(null)}>
+        <DialogContent className="reschedule-dialog">
+          <DialogHeader>
+            <DialogTitle>{rescheduleApprovalDecision === "Approved" ? "Approve Reschedule" : "Reject Reschedule"}</DialogTitle>
+            <DialogDescription>
+              {rescheduleApprovalTarget?.rescheduleRequestedBy === "vendor" ? "Vendor mengajukan perubahan jadwal untuk ditinjau PIC Provisioning." : "PIC Provisioning mengajukan perubahan jadwal untuk ditinjau vendor."}
+            </DialogDescription>
+          </DialogHeader>
+          <label className="reschedule-field">
+            <span>Tanggal Reschedule</span>
+            <input type="date" required={rescheduleApprovalDecision === "Approved"} min={serverNow.date} value={rescheduleApprovalDate} onChange={(event) => setRescheduleApprovalDate(event.target.value)} />
+          </label>
+          <label className="reschedule-field">
+            <span>Time Reschedule</span>
+            <select value={rescheduleApprovalSlot} onChange={(event) => setRescheduleApprovalSlot(event.target.value)}>
+              {slots.map((slot) => <option key={slot} disabled={!isSlotOpen(slot, rescheduleApprovalDate, serverNow)}>{slot}</option>)}
+            </select>
+          </label>
+          <label className="reschedule-field">
+            <span>Reason Approval</span>
+            <textarea rows={4} required placeholder="Jelaskan alasan menerima atau menolak reschedule" value={rescheduleApprovalReason} onChange={(event) => setRescheduleApprovalReason(event.target.value)} />
+          </label>
+          <DialogFooter>
+            <button type="button" className="secondary-button" disabled={busy} onClick={() => setRescheduleApprovalTarget(null)}>Batal</button>
+            <button type="button" className="primary-button" disabled={busy || (rescheduleApprovalDecision === "Approved" && (!rescheduleApprovalDate || !rescheduleApprovalSlot)) || !rescheduleApprovalReason.trim()} onClick={() => void saveRescheduleApproval()}>
+              {busy ? "Menyimpan…" : rescheduleApprovalDecision === "Approved" ? "Approve Reschedule" : "Reject Reschedule"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(rescheduleTarget)} onOpenChange={(open) => !open && setRescheduleTarget(null)}>
         <DialogContent className="reschedule-dialog">
           <DialogHeader>
@@ -1704,11 +1784,13 @@ function PendingList({
   requests,
   onOpen,
   onReschedule,
+  onReviewReschedule,
   vendorMode = false,
 }: {
   requests: ActivationRequest[];
   onOpen: (request: ActivationRequest) => void;
   onReschedule: (request: ActivationRequest) => void;
+  onReviewReschedule: (request: ActivationRequest, decision?: "Approved" | "Rejected") => void;
   vendorMode?: boolean;
 }) {
   const [searchInput, setSearchInput] = useState("");
@@ -1726,8 +1808,8 @@ function PendingList({
     <div>
       <div className="page-heading mb-7">
         <span className="eyebrow"><CirclePause size={13} /> PENDING QUEUE</span>
-        <h1 className="mt-3 text-3xl font-bold tracking-tight lg:text-4xl">Daftar Request Pending</h1>
-        <p className="mt-2 text-sm text-slate-400">Pantau alasan kendala dan jadwalkan kembali aktivasi customer.</p>
+        <h1 className="mt-3 text-3xl font-bold tracking-tight lg:text-4xl">{vendorMode ? "Request PIC untuk Dijadwalkan Ulang" : "Daftar Request Pending"}</h1>
+        <p className="mt-2 text-sm text-slate-400">{vendorMode ? "Pantau request yang sedang ditangani PIC Provisioning." : "Pantau alasan kendala dan jadwalkan kembali aktivasi customer."}</p>
       </div>
       <div className="data-panel overflow-hidden">
         <div className="panel-toolbar flex items-center gap-3 p-4 lg:p-5">
@@ -1752,7 +1834,7 @@ function PendingList({
               <tr>
                 <th>Customer</th>
                 <th>Jadwal Sebelumnya</th>
-                <th>Reason Pending</th>
+                <th>{vendorMode ? "Reason PIC" : "Reason / Request"}</th>
                 <th>PIC Provisioning</th>
                 <th>Tindakan</th>
               </tr>
@@ -1768,12 +1850,21 @@ function PendingList({
                     <b className="capitalize">{formatActivationDate(item.activationDate)}</b>
                     <span>{item.timeSlot}</span>
                   </td>
-                  <td data-label="Reason Pending"><span className="pending-reason">{item.pendingReason || "-"}</span></td>
+                  <td data-label={vendorMode ? "Reason PIC" : "Reason / Request"}><span className="pending-reason">{item.rescheduleApprovalStatus === "Pending PIC Approval" ? item.rescheduleReason || "-" : item.pendingReason || item.picRescheduleReason || "-"}</span></td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
                   <td data-label="Tindakan">
-                    <button type="button" className="reschedule-button" onClick={(event) => { event.stopPropagation(); onReschedule(item); }}>
-                      <CalendarClock size={16} /> {vendorMode ? "Vendor Reschedule" : "PIC Reschedule"}
-                    </button>
+                    {item.rescheduleApprovalStatus === "Pending PIC Approval" ? (
+                      <div className="row-actions">
+                        <button type="button" className="reschedule-button" onClick={(event) => { event.stopPropagation(); onReviewReschedule(item, "Approved"); }}><CheckCircle2 size={16} /> Approve</button>
+                        <button type="button" className="secondary-button" onClick={(event) => { event.stopPropagation(); onReviewReschedule(item, "Rejected"); }}>Reject</button>
+                      </div>
+                    ) : vendorMode ? (
+                      <div className="row-actions"><button type="button" className="reschedule-button" onClick={(event) => { event.stopPropagation(); onReviewReschedule(item, "Approved"); }}><CheckCircle2 size={16} /> Terima</button><button type="button" className="secondary-button" onClick={(event) => { event.stopPropagation(); onReviewReschedule(item, "Rejected"); }}>Tolak</button></div>
+                    ) : (
+                      <button type="button" className="reschedule-button" onClick={(event) => { event.stopPropagation(); onReschedule(item); }}>
+                        <CalendarClock size={16} /> PIC Reschedule
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

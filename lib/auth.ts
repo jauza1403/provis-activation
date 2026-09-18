@@ -295,6 +295,12 @@ export async function ensureActivationRequestsTable(): Promise<void> {
         pic_reschedule_time_slot TEXT NOT NULL DEFAULT '',
         vendor_reschedule_date TEXT NOT NULL DEFAULT '',
         vendor_reschedule_time_slot TEXT NOT NULL DEFAULT '',
+        reschedule_approval_status TEXT NOT NULL DEFAULT '',
+        reschedule_requested_by TEXT NOT NULL DEFAULT '',
+        reschedule_original_status TEXT NOT NULL DEFAULT '',
+        reschedule_approval_reason TEXT NOT NULL DEFAULT '',
+        reschedule_approved_by TEXT NOT NULL DEFAULT '',
+        reschedule_approved_at TEXT NOT NULL DEFAULT '',
         request_type TEXT NOT NULL DEFAULT 'Regular',
         approval_status TEXT NOT NULL DEFAULT 'Not Required',
         approval_code TEXT NOT NULL DEFAULT '',
@@ -312,6 +318,12 @@ export async function ensureActivationRequestsTable(): Promise<void> {
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN pic_reschedule_time_slot TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN vendor_reschedule_date TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN vendor_reschedule_time_slot TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN reschedule_approval_status TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN reschedule_requested_by TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN reschedule_original_status TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN reschedule_approval_reason TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN reschedule_approved_by TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN reschedule_approved_at TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
 
     await db.run(sql`CREATE INDEX IF NOT EXISTS idx_activation_date_slot ON activation_requests (activation_date, time_slot)`);
     await db.run(sql`CREATE INDEX IF NOT EXISTS idx_activation_status ON activation_requests (status)`);

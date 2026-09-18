@@ -98,7 +98,7 @@ export async function GET(request: Request) {
       const reachedStart =
         row.activationDate < now.date ||
         (row.activationDate === now.date && nowMinutes >= slotStartMinutes(row.timeSlot));
-      if (row.approvalStatus !== "Waiting Approval" && ["Idle", "Reschedule"].includes(status) && reachedStart) status = "On Progress";
+      if (row.approvalStatus !== "Waiting Approval" && !String(row.rescheduleApprovalStatus || "").startsWith("Pending") && ["Idle", "Reschedule"].includes(status) && reachedStart) status = "On Progress";
       return status === row.status ? row : { ...row, status };
     });
     const changed = normalized.filter((row, index) => row.status !== rows[index].status);
@@ -267,6 +267,47 @@ export async function PATCH(request: Request) {
         { status: 400 },
       );
     }
+    const db = getDb();
+    const [current] = await db.select().from(activationRequests).where(eq(activationRequests.id, body.id));
+    if (!current) return NextResponse.json({ error: "Request tidak ditemukan." }, { status: 404 });
+    if (body.rescheduleDecision) {
+      if (!['Approved', 'Rejected'].includes(body.rescheduleDecision) || !String(body.rescheduleApprovalReason ?? '').trim()) {
+        return NextResponse.json({ error: "Keputusan dan alasan reschedule wajib diisi." }, { status: 400 });
+      }
+      const approvalStatus = String(current.rescheduleApprovalStatus || '');
+      const vendorApproval = approvalStatus === 'Pending PIC Approval';
+      const picApproval = approvalStatus === 'Pending Vendor Approval';
+      const vendor = user.vendorName.trim().toLowerCase();
+      const region = String(user.regionScope ?? '').trim().toLowerCase();
+      const receiverAllowed = vendorApproval
+        ? user.role === 'superuser' || user.role === 'project_user'
+        : picApproval && user.role === 'vendor_user' && vendor && VALID_REGION_SCOPES.has(region)
+          && current.vendorName.trim().toLowerCase() === vendor && requestRegion(current) === region;
+      if (!receiverAllowed) return NextResponse.json({ error: "Anda tidak memiliki izin untuk memproses reschedule ini." }, { status: 403 });
+      const proposedDate = String(body.activationDate ?? (vendorApproval ? current.vendorRescheduleDate : current.picRescheduleDate));
+      const proposedSlot = String(body.timeSlot ?? (vendorApproval ? current.vendorRescheduleTimeSlot : current.picRescheduleTimeSlot));
+      const decisionUpdate: Record<string, string> = {
+        rescheduleApprovalStatus: body.rescheduleDecision,
+        rescheduleApprovalReason: String(body.rescheduleApprovalReason).trim(),
+        rescheduleApprovedBy: user.username,
+        rescheduleApprovedAt: new Date().toISOString(),
+        status: body.rescheduleDecision === 'Approved' ? 'Idle' : (current.rescheduleOriginalStatus || current.status),
+      };
+      if (body.rescheduleDecision === 'Approved') {
+        if (!validSchedule(proposedDate, proposedSlot)) return NextResponse.json({ error: "Tanggal atau slot reschedule tidak valid." }, { status: 400 });
+        const [updated] = await db.update(activationRequests)
+          .set({ ...decisionUpdate, activationDate: proposedDate, timeSlot: proposedSlot })
+          .where(and(eq(activationRequests.id, body.id), capacity(proposedDate, proposedSlot, body.id)))
+          .returning();
+        if (!updated) return fullResponse();
+        return NextResponse.json({ request: updated });
+      }
+      const [updated] = await db.update(activationRequests).set(decisionUpdate).where(eq(activationRequests.id, body.id)).returning();
+      return NextResponse.json({ request: updated });
+    }
+    if (["Pending PIC Approval", "Pending Vendor Approval"].includes(String(current.rescheduleApprovalStatus || ""))) {
+      return NextResponse.json({ error: "Request sedang menunggu approval reschedule." }, { status: 409 });
+    }
     if (body.status && !allowedStatus.includes(body.status)) {
       return NextResponse.json({ error: "Status tidak valid." }, { status: 400 });
     }
@@ -331,14 +372,11 @@ export async function PATCH(request: Request) {
     if (!Object.keys(update).length) {
       return NextResponse.json({ error: "Tidak ada perubahan untuk disimpan." }, { status: 400 });
     }
-    const db = getDb();
-    const [current] = await db.select().from(activationRequests).where(eq(activationRequests.id, body.id));
-    if (!current) return NextResponse.json({ error: "Request tidak ditemukan." }, { status: 404 });
     if (user.role === "vendor_user") {
       const vendor = user.vendorName.trim().toLowerCase();
       const region = String(user.regionScope ?? "").trim().toLowerCase();
       const allowed = ["id", "status", "activationDate", "timeSlot", "rescheduleReason"];
-      if (!vendor || !VALID_REGION_SCOPES.has(region) || current.vendorName.trim().toLowerCase() !== vendor || requestRegion(current) !== region || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
+      if (!vendor || !VALID_REGION_SCOPES.has(region) || current.vendorName.trim().toLowerCase() !== vendor || requestRegion(current) !== region || current.status === "Pending" || current.rescheduleApprovalStatus === "Pending PIC Approval" || current.rescheduleApprovalStatus === "Pending Vendor Approval" || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
         return NextResponse.json({ error: "Vendor hanya dapat mengajukan reschedule untuk request miliknya." }, { status: 403 });
       }
     }
@@ -355,7 +393,20 @@ export async function PATCH(request: Request) {
       update.vendorRescheduleDate = date;
       update.vendorRescheduleTimeSlot = requestedSlot;
     }
-    const changed = date !== current.activationDate || requestedSlot !== current.timeSlot;
+    if (isPicReschedule || isVendorReschedule) {
+      if (current.rescheduleApprovalStatus === "Pending PIC Approval" || current.rescheduleApprovalStatus === "Pending Vendor Approval") {
+        return NextResponse.json({ error: "Masih ada reschedule yang menunggu approval." }, { status: 409 });
+      }
+      delete update.activationDate;
+      delete update.timeSlot;
+      update.rescheduleApprovalStatus = isVendorReschedule ? "Pending PIC Approval" : "Pending Vendor Approval";
+      update.rescheduleRequestedBy = isVendorReschedule ? "vendor" : "pic";
+      update.rescheduleOriginalStatus = current.status;
+      update.rescheduleApprovalReason = "";
+      update.rescheduleApprovedBy = "";
+      update.rescheduleApprovedAt = "";
+    }
+    const changed = !isPicReschedule && !isVendorReschedule && (date !== current.activationDate || requestedSlot !== current.timeSlot);
     const nextPic = String(update.provisioningPic ?? current.provisioningPic);
     const changingPic = nextPic !== current.provisioningPic;
     if (changingPic) {
