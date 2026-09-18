@@ -1,6 +1,7 @@
 "use client";
 
 import { slots, SLOT_CAPACITY, candidateSlots } from "@/lib/scheduling";
+import { exportSheetToXlsx } from "@/lib/export-xlsx";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,15 +13,19 @@ import {
   CalendarClock,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
   Clock3,
+  Copy,
+  FileDown,
   ImagePlus,
   KeyRound,
   LayoutDashboard,
   Lock,
   LogOut,
   Mail,
+  Menu,
   Pencil,
   Plus,
   CirclePause,
@@ -187,6 +192,76 @@ const workTypes = [
   "Upgrade Equipment with BW",
 ];
 const switchBrands = ["Huawei", "H3C", "Raisecom", "Cisco"];
+const projectPics = [
+  "Andi Prayudi",
+  "Andy",
+  "Anfal",
+  "Azis",
+  "Candra",
+  "Dedi Irawan",
+  "Devri",
+  "Eko",
+  "Enggar",
+  "Fahmi",
+  "Firman",
+  "Gondo",
+  "Handi",
+  "Ibnu",
+  "Iman",
+  "Irfan Arfandi",
+  "Masturi",
+  "Matyas",
+  "Melisa",
+  "Pringgo",
+  "Saepul",
+  "Septian",
+  "Sofian",
+  "Ubaydillah",
+  "Udawan",
+  "Uswa",
+  "Wawan",
+  "Yafizham",
+  "Zillah",
+];
+const vendors = [
+  "AIRWAVE AJI PERKASA, PT",
+  "ALFA AIRI INDOTAMA, PT",
+  "ANDRINA TEKNOLOGI INDONESIA, PT",
+  "ANEKA JAYA LANGGENG SENTOSA, PT",
+  "ANUGRAH TERANG PERSADA, PT",
+  "BUMI CAHYA MANDIRI, PT",
+  "CATUR SEKAWAN, PT",
+  "CEMERLANG LINTAS PERSADA, PT",
+  "CIPTA DAYA SELARAS, PT",
+  "DAYA KOMUNIKASI INTERNASIONAL, PT",
+  "FAJAR MITRA KRIDA ABADI, PT",
+  "GLOBAL MULTIPOWER INDONESIA, PT",
+  "JASA MITRA MANDIRI, PT",
+  "JAYA GEMILANG ABADI, PT",
+  "JAYA INDO PRATAMA, PT",
+  "MAGNA ENERGI INDONUSA, PT",
+  "MAHESWARI ARTHA MEGAH, PT",
+  "MANDALA PUTRA, PT",
+  "MARSA KANINA BESTARI, PT",
+  "MELESAT PRIMA NUSANTARA, PT",
+  "MITRA KREASINDO SINERGITAMA, PT",
+  "NAER TUNAS INDONESIA, PT",
+  "NATA JAYA ELEKTRO, PT",
+  "NUSANTARA INFORMA TEKNOLOGI, PT",
+  "ONARA SOLUSI INFRA, PT",
+  "PANCARAN LANGIT, PT",
+  "PILAR GAPURA NUSA, PT",
+  "PRAGATA MAKMUR PERSADA, PT",
+  "RICHTON, PT",
+  "RISKI PRIMA SAKTI, PT",
+  "SABA PRIMA KONSTRUKSI, PT",
+  "SUMBERSOLUSI TELKO PERKASA, PT",
+  "TECHNOLOGY KARYA MANDIRI, PT",
+  "TEKNOTAMA PRAKARSA MULIA, PT",
+  "TRANSDATA GLOBAL NETWORK, PT",
+  "VENDOR ASSIGN",
+  "ZTE INDONESIA, PT",
+];
 const switchEmailTo = [
   "bertus.pamungkas@iforte.co.id",
   "abdul.khamim@iforte.co.id",
@@ -252,6 +327,41 @@ function formatCompletedTime(value: string) {
     minute: "2-digit",
     hourCycle: "h23",
   }).format(new Date(value))} WIB`;
+}
+
+function formatSheetDate(value: string) {
+  if (!value) return "";
+  const date = new Date(`${value}T00:00:00+07:00`);
+  if (isNaN(date.getTime())) return value;
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${date.getFullYear()}`;
+}
+
+function formatSheetTimestamp(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
+function formatSheetDay(value: string) {
+  if (!value) return "";
+  const date = new Date(`${value}T00:00:00+07:00`);
+  if (isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    weekday: "long",
+  }).format(date).toUpperCase();
 }
 
 function switchEmailService(request: ActivationRequest) {
@@ -368,6 +478,195 @@ function downloadOutlookClassicDraft(request: ActivationRequest) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+type ExportKind = "dashboard" | "reschedule" | "pending" | "completed";
+
+const spreadsheetHeaders = [
+  "STATUS",
+  "IP",
+  "AGING",
+  "PLAN AKTIVASI DATE",
+  "REVISI PAD",
+  "Sales",
+  "DATEK",
+  "Reason Time Slot",
+  "UPDATE REMARK",
+  "PIC PROVIS",
+  "Timestamp",
+  "Email Address",
+  "HARI",
+  "TANGGAL AKTIVASI",
+  "TIME SLOT AKTIVASI",
+  "AREA / REGIONAL",
+  "VENDOR",
+  "AKSES",
+  "BUKTI KORDINASI DENGAN CUSTOMER",
+  "NAMA & NO TELP PIC CUSTOMER DI LOKASI",
+  "PIC AKTIVASI MITRA (VENDOR)",
+  "PIC PROJECT IFORTE",
+  "OPPORTUNITY NUMBER",
+  "NAMA CUSTOMER / ACCOUNT NAME",
+  "SITE ID",
+  "SUBSCRIPTION ID",
+  "SITE NAME / LOCATION NAME",
+  "WORK ORDER",
+  "PRODUK LAYANAN",
+  "WORK TYPE",
+  "BANDWIDTH IX",
+  "BANDWIDTH IIX",
+  "BANDWIDTH LOCAL LOOP",
+  "PORT CUSTOMER",
+  "PORT POP OTB",
+  "PORT ODP 1:8",
+  "PORT ODP 1:4",
+  "NEW PANJANG KABEL",
+  "POP ID",
+  "POP NAME",
+  "PERANGKAT YANG AKAN PASANG",
+  "ALOKASI PORT SWITCH POP",
+  "IP CUSTOMER",
+  "BUILD NEW 1:8",
+  "BUILD NEW 1:4",
+  "EXISTING 1:8",
+  "EXISTING 1:4",
+  "TYPE KABEL",
+  "END TO END",
+  "PORT ODP/FAT",
+  "KODE ODP/FAT",
+  "KOORDINAST FAT",
+  "REDAMAN ODP/FAT",
+  "Detail Jam onsite",
+];
+
+function spreadsheetValues(request: ActivationRequest, kind: ExportKind): (string | number)[] {
+  const remark =
+    (kind === "pending" && request.pendingReason ? request.pendingReason : "") ||
+    (kind === "reschedule" && request.rescheduleReason ? request.rescheduleReason : "") ||
+    request.notes ||
+    request.rescheduleReason ||
+    request.pendingReason ||
+    "";
+  return [
+    request.status || "",
+    request.ipAddress || "",
+    "",
+    formatSheetDate(request.activationDate),
+    "",
+    "",
+    "",
+    "",
+    remark,
+    request.provisioningPic || "",
+    formatSheetTimestamp(request.createdAt),
+    "",
+    formatSheetDay(request.activationDate),
+    formatSheetDate(request.activationDate),
+    request.timeSlot || "",
+    request.area || "",
+    request.vendorName || "",
+    request.accessMedia || "",
+    request.screenshotUrl || "",
+    "",
+    request.vendorPic || "",
+    request.projectPic || "",
+    request.oppNumber || "",
+    request.customerName || "",
+    request.siteId || "",
+    request.subsId || "",
+    "",
+    request.woNumber || "",
+    request.serviceType || "",
+    request.workType || "",
+    "",
+    "",
+    request.bandwidth || "",
+    request.customerPort || "",
+    request.popOtbPort || "",
+    "",
+    "",
+    request.cableLength || "",
+    request.popId || "",
+    request.popName || "",
+    request.devicePlan || "",
+    request.popAllocation || "",
+    request.ipAddress || "",
+    "",
+    "",
+    "",
+    "",
+    request.cableType || "",
+    request.endToEnd || "",
+    "",
+    request.fatOdpCode || "",
+    "",
+    request.attenuation || "",
+    "",
+  ];
+}
+
+function exportSpecFor(kind: ExportKind) {
+  const meta: Record<ExportKind, { sheetLabel: string; filename: string }> = {
+    dashboard: { sheetLabel: "Dashboard", filename: "Dashboard-Aktivasi" },
+    reschedule: { sheetLabel: "Reschedule", filename: "Reschedule" },
+    pending: { sheetLabel: "Pending", filename: "Pending" },
+    completed: { sheetLabel: "Done Activation", filename: "Done-Activation" },
+  };
+  return {
+    sheetLabel: meta[kind].sheetLabel,
+    filename: meta[kind].filename,
+    headers: spreadsheetHeaders,
+    values: (request: ActivationRequest) => spreadsheetValues(request, kind),
+  };
+}
+
+function exportKindToXlsx(kind: ExportKind, requests: ActivationRequest[]): void {
+  const spec = exportSpecFor(kind);
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+  const sorted = [...requests].sort((a, b) =>
+    (b.createdAt || "").localeCompare(a.createdAt || ""),
+  );
+  exportSheetToXlsx(`${spec.filename}-${stamp}`, [
+    { name: spec.sheetLabel, headers: spec.headers, rows: sorted.map((request) => spec.values(request)) },
+  ]);
+}
+
+function rowCopyText(kind: ExportKind, request: ActivationRequest): string {
+  const spec = exportSpecFor(kind);
+  return spec.headers.map((header, index) => `${header}: ${spec.values(request)[index]}`).join("\n");
+}
+
+function CopyRowButton({
+  text,
+  label,
+}: {
+  text: string;
+  label: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className={`icon-action copy ${copied ? "copied" : ""}`}
+      title={copied ? "Baris tersalin" : "Salin baris"}
+      aria-label={`${copied ? "Baris tersalin" : "Salin baris"} ${label}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (!navigator.clipboard) return;
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1600);
+        });
+      }}
+    >
+      {copied ? <Check size={15} /> : <Copy size={15} />}
+    </button>
+  );
+}
+
 const emptyForm = {
   deadline: "",
   activationDate: "",
@@ -430,6 +729,68 @@ const readBandwidthUnit = (value: string) => {
   return match && match[1].toLowerCase() === "gbps" ? "Gbps" : "Mbps";
 };
 
+const PAGE_SIZE = 10;
+
+function usePagination<T>(items: T[], pageSize = PAGE_SIZE) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  return {
+    page: safePage,
+    setPage,
+    totalPages,
+    pageItems: items.slice((safePage - 1) * pageSize, safePage * pageSize),
+  };
+}
+
+function PageControls({
+  page,
+  totalPages,
+  onPageChange,
+  count,
+  label = "data",
+}: {
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  count: number;
+  label?: string;
+}) {
+  if (totalPages <= 1) return null;
+  const start = (page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(page * PAGE_SIZE, count);
+  return (
+    <nav className="pagination-bar" aria-label="Navigasi halaman">
+      <span className="pagination-info">
+        Menampilkan <b>{start}–{end}</b> dari {count} {label}
+      </span>
+      <div className="pagination-buttons">
+        <button
+          type="button"
+          className="pagination-btn"
+          disabled={page <= 1}
+          aria-label="Halaman sebelumnya"
+          onClick={() => onPageChange(page - 1)}
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <span className="pagination-current" aria-live="polite">
+          Halaman {page} / {totalPages}
+        </span>
+        <button
+          type="button"
+          className="pagination-btn"
+          disabled={page >= totalPages}
+          aria-label="Halaman berikutnya"
+          onClick={() => onPageChange(page + 1)}
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -437,6 +798,7 @@ export default function Home() {
   const [requests, setRequests] = useState<ActivationRequest[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua status");
+  const [filterPage, setFilterPage] = useState(1);
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
   const [message, setMessageText] = useState("");
@@ -461,6 +823,10 @@ export default function Home() {
   const [requestTypeDialog, setRequestTypeDialog] = useState(false);
   const [completedDateFilter, setCompletedDateFilter] = useState("all");
   const [successSubmittedRequest, setSuccessSubmittedRequest] = useState<ActivationRequest | null>(null);
+  const [fabOpen, setFabOpen] = useState(false);
+  const [headerHidden, setHeaderHidden] = useState(false);
+  const fabMenuRef = useRef<HTMLDivElement>(null);
+  const fabTriggerRef = useRef<HTMLButtonElement>(null);
 
   // 17:00 WIB cutoff — refreshed every minute
   const [pastCutoff, setPastCutoff] = useState(() => getWibClock().hour >= CUTOFF_HOUR);
@@ -469,6 +835,63 @@ export default function Home() {
     const id = window.setInterval(tick, 60_000);
     return () => window.clearInterval(id);
   }, []);
+
+  // Mobile only: hide the header while scrolling down, reveal it again on scroll up
+  useEffect(() => {
+    const mobile = window.matchMedia("(max-width: 1023.98px)");
+    let lastY = 0;
+    const onScroll = () => {
+      if (!mobile.matches) {
+        setHeaderHidden(false);
+        return;
+      }
+      const y = window.scrollY;
+      const goingDown = y > lastY;
+      lastY = y;
+      if (y <= 0) {
+        setHeaderHidden(false);
+        return;
+      }
+      if (fabOpen) return;
+      if (goingDown && y > 140) {
+        setHeaderHidden(true);
+      } else if (!goingDown) {
+        setHeaderHidden(false);
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [fabOpen]);
+
+  // Floating workspace menu: close on Escape or when resizing up to desktop
+  useEffect(() => {
+    if (!fabOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setFabOpen(false);
+        fabTriggerRef.current?.focus();
+      }
+    };
+    const onResize = () => {
+      if (window.innerWidth >= 1024) setFabOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [fabOpen]);
+
+  // Move focus into the workspace menu when it opens
+  useEffect(() => {
+    if (fabOpen) fabMenuRef.current?.focus();
+  }, [fabOpen]);
+
+  function closeWorkspaceFab() {
+    setFabOpen(false);
+    fabTriggerRef.current?.focus();
+  }
 
   async function load() {
     const response = await fetch("/api/requests", { cache: "no-store" });
@@ -666,6 +1089,12 @@ export default function Home() {
         return a.customerName.localeCompare(b.customerName, "id");
       }),
     [requests, query, statusFilter],
+  );
+  const filteredTotalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safeFilterPage = Math.min(filterPage, filteredTotalPages);
+  const filteredPageItems = filtered.slice(
+    (safeFilterPage - 1) * PAGE_SIZE,
+    safeFilterPage * PAGE_SIZE,
   );
 
   async function updateRequest(
@@ -961,7 +1390,7 @@ export default function Home() {
 
   return (
     <main className="portal-shell min-h-screen text-slate-100">
-      <header className="portal-header px-5 py-4 lg:px-10">
+      <header className={`portal-header px-5 py-4 lg:px-10 ${headerHidden ? "portal-header-hide" : ""}`}>
         <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-5">
           <div className="brand-lockup">
             <span className="brand-logo-shell">
@@ -982,6 +1411,116 @@ export default function Home() {
             <div className="live-pill hidden sm:flex">
               <span className="live-dot" />
               Sistem online
+            </div>
+            <div className="relative lg:hidden">
+              <button
+                ref={fabTriggerRef}
+                type="button"
+                className={`workspace-hamburger ${fabOpen ? "open" : ""}`}
+                aria-haspopup="menu"
+                aria-expanded={fabOpen}
+                aria-label={`Menu workspace${urgentRequests.length ? ` (${urgentRequests.length} persetujuan urgent)` : ""}`}
+                title={`Menu workspace${urgentRequests.length ? ` — ${urgentRequests.length} persetujuan urgent` : ""}`}
+                onClick={() =>
+                  setFabOpen((open) => {
+                    const next = !open;
+                    if (next) setHeaderHidden(false);
+                    return next;
+                  })
+                }
+              >
+                {fabOpen ? <X size={22} /> : <Menu size={22} />}
+                {urgentRequests.length > 0 && (
+                  <span className="hamburger-badge" aria-hidden="true">
+                    {urgentRequests.length > 99 ? "99+" : urgentRequests.length}
+                  </span>
+                )}
+              </button>
+              <div
+                ref={fabMenuRef}
+                tabIndex={-1}
+                className={`workspace-menu-panel ${fabOpen ? "open" : ""}`}
+                role="menu"
+                aria-label="Menu workspace"
+                aria-hidden={!fabOpen}
+                inert={!fabOpen}
+              >
+                <span className="workspace-fab-title">WORKSPACE</span>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`workspace-fab-item ${view === "dashboard" ? "active" : ""}`}
+                  aria-current={view === "dashboard" ? "page" : undefined}
+                  onClick={() => { closeWorkspaceFab(); setView("dashboard"); setEditingId(null); setForm(emptyForm); }}
+                >
+                  <span className="workspace-fab-icon"><LayoutDashboard size={18} /></span>
+                  <span className="workspace-fab-label">{currentUser?.role === "vendor_user" ? "Dashboard Saya" : "Dashboard"}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`workspace-fab-item ${view === "form" ? "active" : ""} ${pastCutoff ? "disabled" : ""}`}
+                  disabled={pastCutoff}
+                  title={pastCutoff ? "Pengajuan reguler tutup pukul 17:00 WIB" : undefined}
+                  onClick={() => { closeWorkspaceFab(); openNewRequest(); }}
+                >
+                  <span className="workspace-fab-icon">{pastCutoff ? <Lock size={18} /> : <Plus size={18} />}</span>
+                  <span className="workspace-fab-label">Request Baru</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`workspace-fab-item urgent ${view === "urgentForm" ? "active" : ""}`}
+                  onClick={() => { closeWorkspaceFab(); openUrgentRequest(); }}
+                >
+                  <span className="workspace-fab-icon"><Flame size={18} /></span>
+                  <span className="workspace-fab-label">Request Urgent</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`workspace-fab-item ${view === "reschedule" ? "active" : ""}`}
+                  onClick={() => { closeWorkspaceFab(); setView("reschedule"); setEditingId(null); setSelectedRequest(null); }}
+                >
+                  <span className="workspace-fab-icon"><CalendarClock size={18} /></span>
+                  <span className="workspace-fab-label">Reschedule</span>
+                  {rescheduleRequests.length > 0 && <span className="workspace-fab-count">{rescheduleRequests.length}</span>}
+                </button>
+                {currentUser?.role !== "vendor_user" && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={`workspace-fab-item ${view === "urgent" ? "active" : ""}`}
+                      onClick={() => { closeWorkspaceFab(); setView("urgent"); setEditingId(null); setSelectedRequest(null); }}
+                    >
+                      <span className="workspace-fab-icon"><MessageCircle size={18} /></span>
+                      <span className="workspace-fab-label">Approval Urgent</span>
+                      {urgentRequests.length > 0 && <span className="workspace-fab-count urgent-count">{urgentRequests.length}</span>}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={`workspace-fab-item ${view === "pending" ? "active" : ""}`}
+                      onClick={() => { closeWorkspaceFab(); setView("pending"); setEditingId(null); setSelectedRequest(null); }}
+                    >
+                      <span className="workspace-fab-icon"><CirclePause size={18} /></span>
+                      <span className="workspace-fab-label">Pending</span>
+                      {pendingRequests.length > 0 && <span className="workspace-fab-count">{pendingRequests.length}</span>}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={`workspace-fab-item ${view === "completed" ? "active" : ""}`}
+                      onClick={() => { closeWorkspaceFab(); setView("completed"); setEditingId(null); setSelectedRequest(null); }}
+                    >
+                      <span className="workspace-fab-icon"><CheckCircle2 size={18} /></span>
+                      <span className="workspace-fab-label">Done Activation</span>
+                      {completedRequests.length > 0 && <span className="workspace-fab-count done-count">{completedRequests.length}</span>}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             {currentUser && (
               <div className="user-profile-badge flex items-center gap-3 pl-3 border-l border-slate-800">
@@ -1022,8 +1561,8 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-[1500px] gap-7 px-4 py-7 lg:grid-cols-[236px_minmax(0,1fr)] lg:px-10">
-        <aside className="portal-sidebar flex gap-2 lg:flex-col">
+      <div className="portal-content mx-auto grid max-w-[1500px] gap-7 px-4 py-7 lg:grid-cols-[236px_minmax(0,1fr)] lg:px-10">
+        <aside className="portal-sidebar hidden lg:flex flex-col gap-2">
           <div className="sidebar-label hidden lg:block">WORKSPACE</div>
           <button
             onClick={() => { setView("dashboard"); setEditingId(null); setForm(emptyForm); }}
@@ -1158,20 +1697,28 @@ export default function Home() {
                     <input
                       aria-label="Cari request berdasarkan Site ID, Subs ID, WO atau vendor"
                       value={query}
-                      onChange={(e) => setQuery(e.target.value)}
+                      onChange={(e) => { setQuery(e.target.value); setFilterPage(1); }}
                       placeholder="Cari Site ID, Subs ID, WO, vendor…"
                     />
                   </label>
                   <select
                     aria-label="Filter status request"
                     value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
+                    onChange={(e) => { setStatusFilter(e.target.value); setFilterPage(1); }}
                   >
                     <option>Semua status</option>
                     {statuses.filter((status) => !["Pending", "Completed"].includes(status)).map((status) => (
                       <option key={status}>{status}</option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    className="export-button"
+                    onClick={() => exportKindToXlsx("dashboard", filtered)}
+                    disabled={!filtered.length}
+                  >
+                    <FileDown size={15} /> Export Excel
+                  </button>
                 </div>
                 <div className="overflow-x-auto">
                   <table>
@@ -1188,7 +1735,7 @@ export default function Home() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((item) => (
+                      {filteredPageItems.map((item) => (
                         <tr
                           key={item.id}
                           className="clickable-row"
@@ -1272,6 +1819,7 @@ export default function Home() {
                           </td>
                           <td data-label="Aksi">
                             <div className="row-actions">
+                              <CopyRowButton text={rowCopyText("dashboard", item)} label={item.customerName || item.siteId} />
                               {item.installSwitch && (
                                 <button
                                   type="button"
@@ -1312,6 +1860,13 @@ export default function Home() {
                     </tbody>
                   </table>
                 </div>
+                <PageControls
+                  page={safeFilterPage}
+                  totalPages={filteredTotalPages}
+                  onPageChange={setFilterPage}
+                  count={filtered.length}
+                  label="request"
+                />
                 {!filtered.length && (
                   <div className="empty-state">
                     <span><ClipboardList size={24} /></span>
@@ -1787,6 +2342,17 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Workspace menu backdrop — dims the page while the mobile burger menu is open */}
+      {fabOpen && (
+        <button
+          type="button"
+          className="workspace-menu-backdrop"
+          aria-label="Tutup menu workspace"
+          tabIndex={0}
+          onClick={() => closeWorkspaceFab()}
+        />
+      )}
     </main>
   );
 }
@@ -1807,6 +2373,7 @@ function CompletedList({
   onDeleteAll: () => void;
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const { page, setPage, totalPages, pageItems } = usePagination(requests);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -1854,6 +2421,14 @@ function CompletedList({
                 </PopoverContent>
               </Popover>
             </div>
+            <button
+              type="button"
+              className="export-button"
+              onClick={() => exportKindToXlsx("completed", requests)}
+              disabled={!requests.length}
+            >
+              <FileDown size={15} /> Export Excel
+            </button>
             <button type="button" className="bulk-delete-button" disabled={!requests.length} onClick={onDeleteAll}>
               <Trash2 size={15} /> Hapus Semua
             </button>
@@ -1871,13 +2446,15 @@ function CompletedList({
               </tr>
             </thead>
             <tbody>
-              {requests.map((item) => (
+              {pageItems.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
                   <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span></td>
                   <td data-label="Waktu Selesai"><b className="capitalize">{formatActivationDate(getCompletedDate(item))}</b><span>{formatCompletedTime(item.completedAt)}</span></td>
                   <td data-label="Area & Vendor"><b>{item.area}</b><span>{item.vendorName}</span></td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
                   <td data-label="Aksi">
+                  <div className="row-actions">
+                    <CopyRowButton text={rowCopyText("completed", item)} label={item.customerName || item.siteId} />
                     <button
                       type="button"
                       className="icon-action delete"
@@ -1887,12 +2464,20 @@ function CompletedList({
                     >
                       <Trash2 size={15} />
                     </button>
-                  </td>
+                  </div>
+                </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <PageControls
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          count={requests.length}
+          label="aktivasi selesai"
+        />
         {!requests.length && (
           <div className="empty-state"><span><CheckCircle2 size={24} /></span><b>Belum ada pekerjaan selesai</b><p>Pilih tanggal lain untuk melihat riwayat completed.</p></div>
         )}
@@ -1910,6 +2495,7 @@ function PendingList({
   onOpen: (request: ActivationRequest) => void;
   onReschedule: (request: ActivationRequest) => void;
 }) {
+  const { page, setPage, totalPages, pageItems } = usePagination(requests);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -1918,11 +2504,19 @@ function PendingList({
         <p className="mt-2 text-sm text-slate-400">Pantau alasan kendala dan jadwalkan kembali aktivasi customer.</p>
       </div>
       <div className="data-panel overflow-hidden">
-        <div className="panel-toolbar flex items-center gap-3 p-4 lg:p-5">
-          <div>
+        <div className="panel-toolbar flex flex-wrap items-center gap-3 p-4 lg:p-5">
+          <div className="mr-auto">
             <b className="text-sm text-white">Semua status Pending</b>
             <span className="mt-1 block text-xs text-slate-500">{requests.length} request menunggu tindak lanjut</span>
           </div>
+          <button
+            type="button"
+            className="export-button"
+            onClick={() => exportKindToXlsx("pending", requests)}
+            disabled={!requests.length}
+          >
+            <FileDown size={15} /> Export Excel
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="pending-table">
@@ -1936,7 +2530,7 @@ function PendingList({
               </tr>
             </thead>
             <tbody>
-              {requests.map((item) => (
+              {pageItems.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
                   <td data-label="Customer">
                     <button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button>
@@ -1949,19 +2543,29 @@ function PendingList({
                   <td data-label="Reason Pending"><span className="pending-reason">{item.pendingReason || "-"}</span></td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
                   <td data-label="Tindakan">
-                    <button
-                      type="button"
-                      className="reschedule-button"
-                      onClick={(event) => { event.stopPropagation(); onReschedule(item); }}
-                    >
-                      <CalendarClock size={16} /> Jadwalkan Kembali
-                    </button>
+                    <div className="row-actions">
+                      <CopyRowButton text={rowCopyText("pending", item)} label={item.customerName || item.siteId} />
+                      <button
+                        type="button"
+                        className="reschedule-button"
+                        onClick={(event) => { event.stopPropagation(); onReschedule(item); }}
+                      >
+                        <CalendarClock size={16} /> Jadwalkan Kembali
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <PageControls
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          count={requests.length}
+          label="request pending"
+        />
         {!requests.length && (
           <div className="empty-state">
             <span><CheckCircle2 size={24} /></span>
@@ -1983,6 +2587,7 @@ function RescheduleList({
   onOpen: (request: ActivationRequest) => void;
   onReschedule: (request: ActivationRequest) => void;
 }) {
+  const { page, setPage, totalPages, pageItems } = usePagination(requests);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -1999,6 +2604,14 @@ function RescheduleList({
           {requests.length > 0 && (
             <span className="text-xs text-slate-500">Alasan reschedule otomatis diberi awalan asal perubahan</span>
           )}
+          <button
+            type="button"
+            className="export-button"
+            onClick={() => exportKindToXlsx("reschedule", requests)}
+            disabled={!requests.length}
+          >
+            <FileDown size={15} /> Export Excel
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="pending-table">
@@ -2012,7 +2625,7 @@ function RescheduleList({
               </tr>
             </thead>
             <tbody>
-              {requests.map((item) => (
+              {pageItems.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
                   <td data-label="Customer">
                     <button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button>
@@ -2027,20 +2640,30 @@ function RescheduleList({
                   </td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
                   <td data-label="Tindakan">
-                    <button
-                      type="button"
-                      className="reschedule-button"
-                      title="Ubah jadwal aktivasi"
-                      onClick={(event) => { event.stopPropagation(); onReschedule(item); }}
-                    >
-                      <CalendarClock size={16} /> Reschedule
-                    </button>
+                    <div className="row-actions">
+                      <CopyRowButton text={rowCopyText("reschedule", item)} label={item.customerName || item.siteId} />
+                      <button
+                        type="button"
+                        className="reschedule-button"
+                        title="Ubah jadwal aktivasi"
+                        onClick={(event) => { event.stopPropagation(); onReschedule(item); }}
+                      >
+                        <CalendarClock size={16} /> Reschedule
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <PageControls
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          count={requests.length}
+          label="request reschedule"
+        />
         {!requests.length && (
           <div className="empty-state">
             <span><CheckCircle2 size={24} /></span>
@@ -2068,6 +2691,7 @@ function UrgentApprovalList({
   busy: boolean;
   canApprove?: boolean;
 }) {
+  const { page, setPage, totalPages, pageItems } = usePagination(requests);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -2086,7 +2710,7 @@ function UrgentApprovalList({
           <table className="pending-table">
             <thead><tr><th>Kode Approval</th><th>Customer</th><th>Jadwal Diajukan</th><th>PIC Provisioning</th><th>Tindakan</th></tr></thead>
             <tbody>
-              {requests.map((item) => (
+              {pageItems.map((item) => (
                 <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
                   <td data-label="Kode Approval"><b className="approval-code">{item.approvalCode}</b></td>
                   <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId}</span></td>
@@ -2107,6 +2731,13 @@ function UrgentApprovalList({
             </tbody>
           </table>
         </div>
+        <PageControls
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          count={requests.length}
+          label="request urgent"
+        />
         {!requests.length && (
           <div className="empty-state"><span><CheckCircle2 size={24} /></span><b>Tidak ada approval tertunda</b><p>Request urgent yang baru dibuat akan tampil di sini.</p></div>
         )}
@@ -2503,18 +3134,20 @@ function RequestForm({
               />
             </Field>
             <Field label="Nama Vendor">
-              <input
-                required
-                placeholder="Nama perusahaan vendor"
-                {...input("vendorName")}
-              />
+              <select required {...input("vendorName")}>
+                <option value="">Pilih vendor…</option>
+                {vendors.map((vendor) => (
+                  <option key={vendor}>{vendor}</option>
+                ))}
+              </select>
             </Field>
             <Field label="PIC Project">
-              <input
-                required
-                placeholder="Nama PIC Project"
-                {...input("projectPic")}
-              />
+              <select required {...input("projectPic")}>
+                <option value="">Pilih PIC Project…</option>
+                {projectPics.map((pic) => (
+                  <option key={pic}>{pic}</option>
+                ))}
+              </select>
             </Field>
             <Field label="PIC Vendor">
               <input
