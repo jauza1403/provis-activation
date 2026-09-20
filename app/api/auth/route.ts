@@ -22,6 +22,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body = (await request.json()) as any;
 
     if (body.action === "logout") {

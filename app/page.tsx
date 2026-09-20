@@ -3,7 +3,8 @@
 import { slots, SLOT_CAPACITY, candidateSlots } from "@/lib/scheduling";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -14,7 +15,6 @@ import {
   ChevronRight,
   ClipboardList,
   Clock3,
-  KeyRound,
   LayoutDashboard,
   Lock,
   LogOut,
@@ -64,7 +64,9 @@ type ActivationRequest = {
   createdAt: string;
   deadline: string;
   activationDate: string;
+  activationDay: string;
   timeSlot: string;
+  email: string;
   area: string;
   regionScope: string;
   vendorName: string;
@@ -74,14 +76,20 @@ type ActivationRequest = {
   isRelocation: boolean;
   isRelayout: boolean;
   customerName: string;
+  customerContact: string;
+  activationPic: string;
   siteId: string;
   subsId: string;
+  siteName: string;
   oppNumber: string;
   woNumber: string;
   devicePlan: string;
   installSwitch: boolean;
   switchBrand: string;
   vlanSwitch: string;
+  switchPopPortAllocation: string;
+  customerIp: string;
+  buildType: string;
   rfaCores: number;
   popAllocation: string;
   popId: string;
@@ -93,7 +101,13 @@ type ActivationRequest = {
   attenuation: string;
   customerPort: string;
   popOtbPort: string;
+  odpFatPort: string;
+  fatCoordinates: string;
   bandwidth: string;
+  bandwidthIx: string;
+  bandwidthIix: string;
+  localLoop: string;
+  coordinationProof: string;
   projectPic: string;
   vendorPic: string;
   provisioningPic: string;
@@ -128,6 +142,17 @@ type CurrentUser = {
   vendorName: string;
   regionScope: string;
 };
+
+type RequestsResponse = {
+  requests?: ActivationRequest[];
+  picCounts?: Record<string, number>;
+  slotCounts?: Record<string, number>;
+  serverNow?: { date: string; hour: number; minute: number };
+  error?: string;
+};
+
+type AuthResponse = { user?: CurrentUser; error?: string };
+type MutationResponse = { request: ActivationRequest; error?: string };
 
 function displayRegionScope(regionScope: string) {
   const normalized = regionScope.trim().toLowerCase();
@@ -198,6 +223,7 @@ const workTypes = [
   "Upgrade Equipment with BW",
 ];
 const switchBrands = ["Huawei", "H3C", "Raisecom", "Cisco"];
+const bandwidthUnits = ["Mbps", "Gbps", "Tbps"];
 const switchEmailTo = [
   "bertus.pamungkas@iforte.co.id",
   "abdul.khamim@iforte.co.id",
@@ -259,6 +285,14 @@ function formatActivationDate(value: string) {
     day: "2-digit",
     month: "long",
     year: "numeric",
+  }).format(new Date(`${value}T00:00:00+07:00`));
+}
+
+function formatActivationDay(value: string) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    weekday: "long",
   }).format(new Date(`${value}T00:00:00+07:00`));
 }
 
@@ -394,7 +428,9 @@ function downloadOutlookClassicDraft(request: ActivationRequest) {
 const emptyForm = {
   deadline: "",
   activationDate: "",
+  activationDay: "",
   timeSlot: slots[0],
+  email: "",
   area: "",
   vendorName: "",
   accessMedia: "METRO",
@@ -403,14 +439,20 @@ const emptyForm = {
   isRelocation: false,
   isRelayout: false,
   customerName: "",
+  customerContact: "",
+  activationPic: "",
   siteId: "",
   subsId: "",
+  siteName: "",
   oppNumber: "",
   woNumber: "",
   devicePlan: "",
   installSwitch: false,
   switchBrand: "",
   vlanSwitch: "",
+  switchPopPortAllocation: "",
+  customerIp: "",
+  buildType: "",
   rfaCores: 1,
   popId: "",
   popName: "",
@@ -421,7 +463,13 @@ const emptyForm = {
   attenuation: "",
   customerPort: "",
   popOtbPort: "",
+  odpFatPort: "",
+  fatCoordinates: "",
   bandwidth: "",
+  bandwidthIx: "",
+  bandwidthIix: "",
+  localLoop: "",
+  coordinationProof: "",
   projectPic: "",
   vendorPic: "",
   provisioningPic: pics[0],
@@ -444,7 +492,7 @@ const CUTOFF_HOUR = 17;
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState<"dashboard" | "form" | "urgentForm" | "urgent" | "pending" | "completed">("dashboard");
+  const [view, setView] = useState<"dashboard" | "form" | "urgentForm" | "urgent" | "pending" | "rescheduleQueue" | "myReschedules" | "completed">("dashboard");
   const [requests, setRequests] = useState<ActivationRequest[]>([]);
   const [picCounts, setPicCounts] = useState<Record<string, number>>({});
   const [slotCounts, setSlotCounts] = useState<Record<string, number>>({});
@@ -481,6 +529,7 @@ export default function Home() {
   const [pendingReason, setPendingReason] = useState("");
   const [requestTypeDialog, setRequestTypeDialog] = useState(false);
   const [completedDateFilter, setCompletedDateFilter] = useState("all");
+  const [overdueOnly, setOverdueOnly] = useState(false);
 
   // 17:00 WIB cutoff — refreshed every minute
   const [pastCutoff, setPastCutoff] = useState(() => getWibClock().hour >= CUTOFF_HOUR);
@@ -502,7 +551,7 @@ export default function Home() {
       setSlotCounts({});
       return;
     }
-    const data = (await response.json()) as any;
+    const data = (await response.json()) as RequestsResponse;
     if (!response.ok) throw new Error(data.error);
     setRequests(data.requests ?? []);
     setPicCounts(data.picCounts ?? {});
@@ -518,7 +567,7 @@ export default function Home() {
           window.location.href = "/login";
           return;
         }
-        const data = (await res.json()) as any;
+        const data = (await res.json()) as AuthResponse;
         if (!data.user) {
           window.location.href = "/login";
           return;
@@ -550,20 +599,13 @@ export default function Home() {
     }
   }
 
-  // Enforce vendor view boundaries
-  useEffect(() => {
-    if (currentUser?.role === "vendor_user" && ["urgent", "completed"].includes(view)) {
-      setView("dashboard");
-    }
-  }, [currentUser, view]);
-
   async function submit(payload = form, urgent = false) {
     const response = await fetch("/api/requests", {
       method: editingId ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(editingId ? { id: editingId, ...payload } : { ...payload, requestType: urgent ? "Urgent" : "Regular" }),
     });
-    const data = (await response.json()) as any;
+    const data = (await response.json()) as MutationResponse;
     if (!response.ok) throw new Error(data.error);
     setRequests((current) =>
       editingId
@@ -667,12 +709,16 @@ export default function Home() {
       // Browser does not support WebMCP.
     }
     return () => controller.abort();
+    // WebMCP registration intentionally captures the initial submit handler once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const today = getWibClock().date;
   const filtered = useMemo(
     () =>
       requests.filter((item) => {
         if (["Pending", "Completed"].includes(item.status) || item.approvalStatus === "Waiting Approval") return false;
+        if (overdueOnly && !(item.activationDate < today && item.status !== "Completed")) return false;
         const haystack =
           `${item.customerName} ${item.siteId} ${item.subsId} ${item.woNumber} ${item.vendorName} ${item.area} ${item.provisioningPic}`.toLowerCase();
         return (
@@ -686,7 +732,7 @@ export default function Home() {
         if (slotOrder !== 0) return slotOrder;
         return a.customerName.localeCompare(b.customerName, "id");
       }),
-    [requests, query, statusFilter],
+    [requests, query, statusFilter, overdueOnly, today],
   );
 
   async function updateRequest(
@@ -756,7 +802,7 @@ export default function Home() {
           rescheduleApprovalReason: rescheduleApprovalReason.trim(),
         }),
       });
-      const data = (await response.json()) as any;
+      const data = (await response.json()) as MutationResponse;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) => current.map((item) => item.id === rescheduleApprovalTarget.id ? data.request : item));
       setRescheduleApprovalTarget(null);
@@ -784,7 +830,7 @@ export default function Home() {
           pendingReason: pendingReason.trim(),
         }),
       });
-      const data = (await response.json()) as any;
+      const data = (await response.json()) as MutationResponse;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) =>
         current.map((item) => item.id === pendingTarget.id ? data.request : item),
@@ -815,7 +861,7 @@ export default function Home() {
           ...(vendorReschedule ? { rescheduleReason: rescheduleReason.trim() } : { picRescheduleReason: rescheduleReason.trim() }),
         }),
       });
-      const data = (await response.json()) as any;
+      const data = (await response.json()) as MutationResponse;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) =>
         current.map((item) => item.id === rescheduleTarget.id ? data.request : item),
@@ -823,7 +869,7 @@ export default function Home() {
       setSelectedRequest((current) => current?.id === rescheduleTarget.id ? data.request : current);
       setRescheduleTarget(null);
       setRescheduleReason("");
-      setMessage(vendorReschedule ? "Vendor Reschedule berhasil diajukan untuk approval PIC." : "PIC Reschedule berhasil diajukan untuk approval vendor.", "success");
+      setMessage(vendorReschedule ? "Vendor Reschedule berhasil diajukan untuk approval PIC." : "PIC Reschedule berhasil disimpan dan diinformasikan ke vendor.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Jadwal gagal diubah.");
     } finally {
@@ -848,7 +894,7 @@ export default function Home() {
           status: "On Progress",
         }),
       });
-      const data = (await response.json()) as any;
+      const data = (await response.json()) as MutationResponse;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) => current.map((request) => request.id === item.id ? data.request : request));
       setSelectedRequest(null);
@@ -887,7 +933,9 @@ export default function Home() {
     setForm({
       deadline: item.deadline,
       activationDate: item.activationDate,
+      activationDay: item.activationDay || "",
       timeSlot: item.timeSlot,
+      email: item.email || "",
       area: item.area,
       vendorName: item.vendorName,
       accessMedia: item.accessMedia,
@@ -896,14 +944,20 @@ export default function Home() {
       isRelocation: Boolean(item.isRelocation),
       isRelayout: Boolean(item.isRelayout),
       customerName: item.customerName,
+      customerContact: item.customerContact || "",
+      activationPic: item.activationPic || "",
       siteId: item.siteId,
       subsId: item.subsId,
+      siteName: item.siteName || "",
       oppNumber: item.oppNumber,
       woNumber: item.woNumber,
       devicePlan: item.devicePlan,
       installSwitch: Boolean(item.installSwitch),
       switchBrand: item.switchBrand || "",
       vlanSwitch: item.vlanSwitch || "",
+      switchPopPortAllocation: item.switchPopPortAllocation || "",
+      customerIp: item.customerIp || "",
+      buildType: item.buildType || "",
       rfaCores: item.rfaCores,
       popId: item.popId || "",
       popName: item.popName || item.popAllocation || "",
@@ -914,7 +968,13 @@ export default function Home() {
       attenuation: item.attenuation || "",
       customerPort: item.customerPort || "",
       popOtbPort: item.popOtbPort || "",
+      odpFatPort: item.odpFatPort || "",
+      fatCoordinates: item.fatCoordinates || "",
       bandwidth: item.bandwidth || "",
+      bandwidthIx: item.bandwidthIx || "",
+      bandwidthIix: item.bandwidthIix || "",
+      localLoop: item.localLoop || "",
+      coordinationProof: item.coordinationProof || "",
       projectPic: item.projectPic,
       vendorPic: item.vendorPic,
       provisioningPic: item.provisioningPic,
@@ -933,7 +993,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: deleteTarget.id }),
       });
-      const data = (await response.json()) as any;
+      const data = (await response.json()) as MutationResponse;
       if (!response.ok) throw new Error(data.error);
       setRequests((current) => current.filter((item) => item.id !== deleteTarget.id));
       setSelectedRequest((current) => current?.id === deleteTarget.id ? null : current);
@@ -977,7 +1037,6 @@ export default function Home() {
   }
 
   const activeCount = requests.filter((r) => r.status === "On Progress").length;
-  const today = getWibClock().date;
   const todayCount = requests.filter((r) => r.activationDate === today && r.approvalStatus !== "Waiting Approval").length;
   const completed = requests.filter((r) => r.status === "Completed").length;
   const completedRequests = requests
@@ -990,10 +1049,58 @@ export default function Home() {
   const completedForDate = completedDateFilter === "all"
     ? completedRequests
     : completedRequests.filter((r) => getCompletedDate(r) === completedDateFilter);
-  const pendingRequests = currentUser?.role === "vendor_user"
-    ? requests.filter((r) => r.status === "Pending")
-    : requests.filter((r) => r.status === "Pending" || r.rescheduleApprovalStatus === "Pending PIC Approval");
+  const onHoldRequests = requests.filter((r) => r.status === "Pending" && !r.rescheduleApprovalStatus);
+  const vendorRescheduleRequests = requests.filter((r) => r.status === "Reschedule" && r.rescheduleApprovalStatus === "Pending PIC Approval");
+  const picUpdatesRequests = onHoldRequests;
+  const myRescheduleRequests = vendorRescheduleRequests.filter((r) => r.rescheduleRequestedBy === "vendor");
   const urgentRequests = requests.filter((r) => r.approvalStatus === "Waiting Approval");
+  const overdueRequests = requests.filter((r) => r.activationDate < today && !["Completed", "Pending"].includes(r.status) && r.approvalStatus !== "Waiting Approval");
+  const attentionItems = [
+    ...(currentUser?.role !== "vendor_user" ? [{
+      key: "urgent",
+      label: "Approval urgent",
+      description: "Request urgent menunggu keputusan",
+      count: urgentRequests.length,
+      icon: <MessageCircle size={18} />,
+      tone: "urgent",
+      onClick: () => { setOverdueOnly(false); setView("urgent"); },
+    }] : []),
+    {
+      key: "pending",
+      label: currentUser?.role === "vendor_user" ? "PIC updates" : "Pending / on hold",
+      description: currentUser?.role === "vendor_user" ? "Request yang perlu diperbarui" : "Request yang tertahan",
+      count: onHoldRequests.length,
+      icon: <CirclePause size={18} />,
+      tone: "pending",
+      onClick: () => { setOverdueOnly(false); setView("pending"); },
+    },
+    ...(currentUser?.role !== "vendor_user" ? [{
+      key: "reschedule",
+      label: "Vendor reschedule",
+      description: "Menunggu approval jadwal baru",
+      count: vendorRescheduleRequests.length,
+      icon: <CalendarClock size={18} />,
+      tone: "reschedule",
+      onClick: () => { setOverdueOnly(false); setView("rescheduleQueue"); },
+    }] : [{
+      key: "reschedule",
+      label: "My reschedule requests",
+      description: "Pengajuan jadwal yang sedang diproses",
+      count: myRescheduleRequests.length,
+      icon: <CalendarClock size={18} />,
+      tone: "reschedule",
+      onClick: () => { setOverdueOnly(false); setView("myReschedules"); },
+    }]),
+    {
+      key: "overdue",
+      label: "Melewati jadwal",
+      description: "Aktivasi belum selesai sesuai tanggal",
+      count: overdueRequests.length,
+      icon: <ShieldAlert size={18} />,
+      tone: "overdue",
+      onClick: () => { setOverdueOnly(true); setView("dashboard"); },
+    },
+  ];
 
   if (authLoading) {
     return (
@@ -1010,9 +1117,12 @@ export default function Home() {
         <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-5">
           <div className="brand-lockup">
             <span className="brand-logo-shell">
-              <img
+              <Image
                 src="/iforte-logo.png"
                 alt="iForte"
+                width={132}
+                height={40}
+                priority
                 className="brand-logo-image"
               />
             </span>
@@ -1072,34 +1182,37 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-[1500px] gap-7 px-4 py-7 lg:grid-cols-[236px_minmax(0,1fr)] lg:px-10">
+      <div className="portal-content-grid mx-auto grid max-w-[1500px] gap-7 px-4 py-7 lg:grid-cols-[236px_minmax(0,1fr)] lg:px-10">
         <aside className="portal-sidebar flex gap-2 lg:flex-col">
-          <div className="sidebar-label hidden lg:block">WORKSPACE</div>
-          <button
-            onClick={() => { setView("dashboard"); setEditingId(null); setForm(emptyForm); }}
-            className={`nav-button ${view === "dashboard" ? "active" : ""}`}
-          >
-            <LayoutDashboard size={18} />
-            {currentUser?.role === "vendor_user" ? "Dashboard Saya" : "Dashboard"}
-          </button>
-          <button
-            onClick={openNewRequest}
-            disabled={pastCutoff}
-            title={pastCutoff ? "Pengajuan reguler tutup pukul 17:00 WIB" : undefined}
-            className={`nav-button ${view === "form" ? "active" : ""} ${pastCutoff ? "disabled" : ""}`}
-          >
-            {pastCutoff ? <Lock size={18} /> : <Plus size={18} />}
-            Request Baru
-          </button>
-          <button
-            onClick={openUrgentRequest}
-            className={`nav-button urgent-nav ${view === "urgentForm" ? "active" : ""}`}
-          >
-            <Flame size={18} />
-            Request Urgent
-          </button>
-          {currentUser?.role !== "vendor_user" && (
-            <>
+          <div className="sidebar-group">
+            <div className="sidebar-group-label">WORKSPACE</div>
+            <button
+              onClick={() => { setView("dashboard"); setOverdueOnly(false); setEditingId(null); setForm(emptyForm); }}
+              className={`nav-button ${view === "dashboard" ? "active" : ""}`}
+            >
+              <LayoutDashboard size={18} />
+              {currentUser?.role === "vendor_user" ? "Dashboard Saya" : "Dashboard"}
+            </button>
+            <button
+              onClick={openNewRequest}
+              disabled={pastCutoff}
+              title={pastCutoff ? "Pengajuan reguler tutup pukul 17:00 WIB" : undefined}
+              className={`nav-button ${view === "form" ? "active" : ""} ${pastCutoff ? "disabled" : ""}`}
+            >
+              {pastCutoff ? <Lock size={18} /> : <Plus size={18} />}
+              Request Baru
+            </button>
+            <button
+              onClick={openUrgentRequest}
+              className={`nav-button urgent-nav ${view === "urgentForm" ? "active" : ""}`}
+            >
+              <Flame size={18} />
+              Request Urgent
+            </button>
+          </div>
+          <div className="sidebar-group">
+            <div className="sidebar-group-label">FOLLOW-UP</div>
+            {currentUser?.role !== "vendor_user" && (
               <button
                 onClick={() => { setView("urgent"); setEditingId(null); setSelectedRequest(null); }}
                 className={`nav-button ${view === "urgent" ? "active" : ""}`}
@@ -1108,6 +1221,38 @@ export default function Home() {
                 Approval Urgent
                 {urgentRequests.length > 0 && <span className="nav-count urgent-count">{urgentRequests.length}</span>}
               </button>
+            )}
+            <button
+              onClick={() => { setView("pending"); setEditingId(null); setSelectedRequest(null); }}
+              className={`nav-button ${view === "pending" ? "active" : ""}`}
+            >
+              <CirclePause size={18} />
+              {currentUser?.role === "vendor_user" ? "PIC Updates" : "Pending / On Hold"}
+              {(currentUser?.role === "vendor_user" ? picUpdatesRequests.length : onHoldRequests.length) > 0 && <span className="nav-count">{currentUser?.role === "vendor_user" ? picUpdatesRequests.length : onHoldRequests.length}</span>}
+            </button>
+            {currentUser?.role !== "vendor_user" ? (
+              <button
+                onClick={() => { setView("rescheduleQueue"); setEditingId(null); setSelectedRequest(null); }}
+                className={`nav-button ${view === "rescheduleQueue" ? "active" : ""}`}
+              >
+                <CalendarClock size={18} />
+                Reschedules
+                {vendorRescheduleRequests.length > 0 && <span className="nav-count">{vendorRescheduleRequests.length}</span>}
+              </button>
+            ) : (
+              <button
+                onClick={() => { setView("myReschedules"); setEditingId(null); setSelectedRequest(null); }}
+                className={`nav-button ${view === "myReschedules" ? "active" : ""}`}
+              >
+                <CalendarClock size={18} />
+                My Reschedules
+                {myRescheduleRequests.length > 0 && <span className="nav-count">{myRescheduleRequests.length}</span>}
+              </button>
+            )}
+          </div>
+          {currentUser?.role !== "vendor_user" && (
+            <div className="sidebar-group">
+              <div className="sidebar-group-label">HISTORY</div>
               <button
                 onClick={() => { setView("completed"); setEditingId(null); setSelectedRequest(null); }}
                 className={`nav-button ${view === "completed" ? "active" : ""}`}
@@ -1116,16 +1261,8 @@ export default function Home() {
                 Selesai
                 {completedRequests.length > 0 && <span className="nav-count completed-count">{completedRequests.length}</span>}
               </button>
-            </>
+            </div>
           )}
-          <button
-            onClick={() => { setView("pending"); setEditingId(null); setSelectedRequest(null); }}
-            className={`nav-button ${view === "pending" ? "active" : ""}`}
-          >
-            <CirclePause size={18} />
-            {currentUser?.role === "vendor_user" ? "Request for Reschedule" : "Pending"}
-            {pendingRequests.length > 0 && <span className="nav-count">{pendingRequests.length}</span>}
-          </button>
           <div className={`deadline-note mt-auto hidden lg:block ${pastCutoff ? "cutoff-active" : ""}`}>
             <span className="deadline-icon">{pastCutoff ? <ShieldAlert size={18} /> : <Clock3 size={18} />}</span>
             <b>{pastCutoff ? "Pengajuan reguler tutup" : "Pengajuan dibuka"}</b>
@@ -1163,6 +1300,36 @@ export default function Home() {
                   <ArrowUpRight size={16} />
                 </button>
               </div>
+              <section className="attention-panel mb-6" aria-labelledby="attention-title">
+                <div className="attention-header">
+                  <div>
+                    <span className="eyebrow"><ShieldAlert size={13} /> PERLU TINDAKAN</span>
+                    <h2 id="attention-title">Prioritas operasional</h2>
+                    <p>Mulai dari pekerjaan yang berisiko menghambat aktivasi.</p>
+                  </div>
+                  <span className="attention-total">
+                    {attentionItems.reduce((total, item) => total + item.count, 0)} item
+                  </span>
+                </div>
+                <div className="attention-grid">
+                  {attentionItems.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className={`attention-card attention-${item.tone}`}
+                      onClick={item.onClick}
+                    >
+                      <span className="attention-icon">{item.icon}</span>
+                      <span className="attention-copy">
+                        <strong>{item.label}</strong>
+                        <small>{item.description}</small>
+                      </span>
+                      <span className="attention-count">{item.count}</span>
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+              </section>
               <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <Metric
                   icon={<ClipboardList />}
@@ -1204,6 +1371,11 @@ export default function Home() {
                       placeholder="Cari Site ID, Subs ID, WO, vendor…"
                     />
                   </label>
+                  {overdueOnly && (
+                    <button type="button" className="active-filter" onClick={() => setOverdueOnly(false)}>
+                      Melewati jadwal · Hapus filter <X size={14} />
+                    </button>
+                  )}
                   <select
                     aria-label="Filter status request"
                     value={statusFilter}
@@ -1219,33 +1391,23 @@ export default function Home() {
                   <table>
                     <thead>
                       <tr>
-                        <th>Customer</th>
-                        <th>Jadwal Aktivasi</th>
-                        <th>Time</th>
-                        <th>Area & Vendor</th>
-                        <th>Media</th>
-                        <th>PIC Provisioning</th>
-                        <th>Status</th>
-                        <th>Aksi</th>
+                        <th scope="col">Customer</th>
+                        <th scope="col">Jadwal Aktivasi</th>
+                        <th scope="col">Time</th>
+                        <th scope="col">Area & Vendor</th>
+                        <th scope="col">Media</th>
+                        <th scope="col">PIC Provisioning</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.map((item) => (
-                        <tr
-                          key={item.id}
-                          className="clickable-row"
-                          tabIndex={0}
-                          onClick={() => setSelectedRequest(item)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              setSelectedRequest(item);
-                            }
-                          }}
-                          aria-label={`Lihat detail ${item.customerName || item.siteId}`}
-                        >
+                        <tr key={item.id}>
                           <td data-label="Customer">
-                            <b>{item.customerName || "Nama customer belum diisi"}</b>
+                            <button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={() => setSelectedRequest(item)}>
+                              {item.customerName || "Nama customer belum diisi"}
+                            </button>
                             <span>
                               {item.siteId} · {item.subsId} · WO {item.woNumber}
                             </span>
@@ -1370,7 +1532,6 @@ export default function Home() {
             </>
           ) : view === "form" || view === "urgentForm" ? (
             <RequestForm
-              requests={requests.filter((item) => item.id !== editingId)}
               picCounts={picCounts}
               slotCounts={slotCounts}
               serverNow={serverNow}
@@ -1415,13 +1576,32 @@ export default function Home() {
               onDelete={setDeleteTarget}
               onDeleteAll={() => setDeleteCompletedAllOpen(true)}
             />
-          ) : (
+          ) : view === "pending" ? (
             <PendingList
-              requests={pendingRequests}
+              requests={currentUser?.role === "vendor_user" ? picUpdatesRequests : onHoldRequests}
               onOpen={setSelectedRequest}
               onReschedule={openReschedule}
               onReviewReschedule={openRescheduleApproval}
               vendorMode={currentUser?.role === "vendor_user"}
+              queueType={currentUser?.role === "vendor_user" ? "updates" : "hold"}
+            />
+          ) : view === "myReschedules" ? (
+            <PendingList
+              requests={myRescheduleRequests}
+              onOpen={setSelectedRequest}
+              onReschedule={openReschedule}
+              onReviewReschedule={openRescheduleApproval}
+              vendorMode
+              queueType="mine"
+            />
+          ) : (
+            <PendingList
+              requests={vendorRescheduleRequests}
+              onOpen={setSelectedRequest}
+              onReschedule={openReschedule}
+              onReviewReschedule={openRescheduleApproval}
+              vendorMode={currentUser?.role === "vendor_user"}
+              queueType="approval"
             />
           )}
         </section>
@@ -1502,7 +1682,7 @@ export default function Home() {
               onClick={() => { setRequestTypeDialog(false); openNewRequest(); }}
             >
               <span>{pastCutoff ? <Lock size={20} /> : <Plus size={20} />}</span>
-              <div><b>Request New</b><small>{pastCutoff ? "Tutup setelah pukul 17:00 WIB" : "Request aktivasi reguler"}</small></div>
+              <div><b>Request Baru</b><small>{pastCutoff ? "Tutup setelah pukul 17:00 WIB" : "Aktivasi reguler tanpa approval"}</small></div>
               {!pastCutoff && <ChevronRight size={19} />}
             </button>
             <button
@@ -1511,7 +1691,7 @@ export default function Home() {
               onClick={() => { setRequestTypeDialog(false); openUrgentRequest(); }}
             >
               <span><Flame size={20} /></span>
-              <div><b>Request New Urgent</b><small>Need Approval</small></div>
+              <div><b>Request Urgent</b><small>Memerlukan approval Superuser</small></div>
               <ChevronRight size={19} />
             </button>
           </div>
@@ -1742,16 +1922,16 @@ function CompletedList({
           <table className="pending-table">
             <thead>
               <tr>
-                <th>Customer</th>
-                <th>Waktu Selesai</th>
-                <th>Area & Vendor</th>
-                <th>PIC Provisioning</th>
-                <th>Aksi</th>
+                <th scope="col">Customer</th>
+                <th scope="col">Waktu Selesai</th>
+                <th scope="col">Area & Vendor</th>
+                <th scope="col">PIC Provisioning</th>
+                <th scope="col">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {requests.map((item) => (
-                <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
+                <tr key={item.id}>
                   <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span></td>
                   <td data-label="Waktu Selesai"><b className="capitalize">{formatActivationDate(getCompletedDate(item))}</b><span>{formatCompletedTime(item.completedAt)}</span></td>
                   <td data-label="Area & Vendor"><b>{item.area}</b><span>{item.vendorName}</span></td>
@@ -1786,12 +1966,14 @@ function PendingList({
   onReschedule,
   onReviewReschedule,
   vendorMode = false,
+  queueType,
 }: {
   requests: ActivationRequest[];
   onOpen: (request: ActivationRequest) => void;
   onReschedule: (request: ActivationRequest) => void;
   onReviewReschedule: (request: ActivationRequest, decision?: "Approved" | "Rejected") => void;
   vendorMode?: boolean;
+  queueType: "hold" | "approval" | "updates" | "mine";
 }) {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1807,14 +1989,14 @@ function PendingList({
   return (
     <div>
       <div className="page-heading mb-7">
-        <span className="eyebrow"><CirclePause size={13} /> PENDING QUEUE</span>
-        <h1 className="mt-3 text-3xl font-bold tracking-tight lg:text-4xl">{vendorMode ? "Request PIC untuk Dijadwalkan Ulang" : "Daftar Request Pending"}</h1>
-        <p className="mt-2 text-sm text-slate-400">{vendorMode ? "Pantau request yang sedang ditangani PIC Provisioning." : "Pantau alasan kendala dan jadwalkan kembali aktivasi customer."}</p>
+        <span className="eyebrow"><CirclePause size={13} /> {queueType === "approval" ? "RESCHEDULE APPROVAL QUEUE" : queueType === "updates" ? "PIC UPDATES" : queueType === "mine" ? "MY RESCHEDULE REQUESTS" : "ON HOLD QUEUE"}</span>
+        <h1 className="mt-3 text-3xl font-bold tracking-tight lg:text-4xl">{queueType === "approval" ? "Vendor Reschedule Request" : queueType === "updates" ? "PIC Updates" : queueType === "mine" ? "My Reschedule Requests" : (vendorMode ? "On Hold" : "Pending / On Hold")}</h1>
+        <p className="mt-2 text-sm text-slate-400">{queueType === "approval" ? "Tinjau perubahan jadwal yang diajukan vendor." : queueType === "updates" ? "Informasi ON HOLD dan perubahan jadwal dari PIC Provisioning." : queueType === "mine" ? "Pantau pengajuan perubahan jadwal Anda yang menunggu approval PIC." : (vendorMode ? "Pantau request yang sedang ditangani PIC Provisioning." : "Pantau request yang sedang ditahan karena kendala operasional.")}</p>
       </div>
       <div className="data-panel overflow-hidden">
         <div className="panel-toolbar flex items-center gap-3 p-4 lg:p-5">
           <div>
-            <b className="text-sm text-white">Semua status Pending</b>
+            <b className="text-sm text-white">{queueType === "approval" ? "Reschedule menunggu approval" : queueType === "updates" ? "Update dari PIC Provisioning" : queueType === "mine" ? "Pengajuan menunggu approval PIC" : "Request ON HOLD"}</b>
             <span className="mt-1 block text-xs text-slate-500">{requests.length} request menunggu tindak lanjut</span>
           </div>
           <label className="search-box pending-search">
@@ -1832,38 +2014,41 @@ function PendingList({
           <table className="pending-table">
             <thead>
               <tr>
-                <th>Customer</th>
-                <th>Jadwal Sebelumnya</th>
-                <th>{vendorMode ? "Reason PIC" : "Reason / Request"}</th>
-                <th>PIC Provisioning</th>
-                <th>Tindakan</th>
+                <th scope="col">Customer</th>
+                <th scope="col">{queueType === "mine" ? "Jadwal Diajukan" : "Jadwal Sebelumnya"}</th>
+                <th scope="col">{queueType === "approval" || queueType === "mine" ? "Reason Reschedule" : queueType === "updates" ? "Tipe / Reason" : "Reason Pending"}</th>
+                <th scope="col">PIC Provisioning</th>
+                <th scope="col">Tindakan</th>
               </tr>
             </thead>
             <tbody>
               {filteredRequests.map((item) => (
-                <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
+                <tr key={item.id}>
                   <td data-label="Customer">
                     <button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button>
                     <span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span>
                   </td>
-                  <td data-label="Jadwal Sebelumnya">
-                    <b className="capitalize">{formatActivationDate(item.activationDate)}</b>
-                    <span>{item.timeSlot}</span>
+                  <td data-label={queueType === "mine" ? "Jadwal Diajukan" : "Jadwal Sebelumnya"}>
+                    <b className="capitalize">{formatActivationDate(queueType === "mine" ? item.vendorRescheduleDate : item.activationDate)}</b>
+                    <span>{queueType === "mine" ? item.vendorRescheduleTimeSlot : item.timeSlot}</span>
                   </td>
-                  <td data-label={vendorMode ? "Reason PIC" : "Reason / Request"}><span className="pending-reason">{item.rescheduleApprovalStatus === "Pending PIC Approval" ? item.rescheduleReason || "-" : item.pendingReason || item.picRescheduleReason || "-"}</span></td>
+                  <td data-label={queueType === "approval" || queueType === "mine" ? "Reason Reschedule" : queueType === "updates" ? "Tipe / Reason" : "Reason Pending"}>
+                    {queueType === "updates" && <b className="block text-xs text-sky-300">{item.picRescheduleDate ? "PIC RESCHEDULED" : "ON HOLD"}</b>}
+                    <span className="pending-reason">{queueType === "approval" || queueType === "mine" ? item.rescheduleReason || "-" : item.picRescheduleDate ? item.picRescheduleReason || "-" : item.pendingReason || "-"}</span>
+                  </td>
                   <td data-label="PIC Provisioning"><b>{item.provisioningPic}</b></td>
                   <td data-label="Tindakan">
-                    {item.rescheduleApprovalStatus === "Pending PIC Approval" ? (
+                    {queueType === "approval" && item.rescheduleApprovalStatus === "Pending PIC Approval" ? (
                       <div className="row-actions">
                         <button type="button" className="reschedule-button" onClick={(event) => { event.stopPropagation(); onReviewReschedule(item, "Approved"); }}><CheckCircle2 size={16} /> Approve</button>
                         <button type="button" className="secondary-button" onClick={(event) => { event.stopPropagation(); onReviewReschedule(item, "Rejected"); }}>Reject</button>
                       </div>
-                    ) : vendorMode ? (
-                      <div className="row-actions"><button type="button" className="reschedule-button" onClick={(event) => { event.stopPropagation(); onReviewReschedule(item, "Approved"); }}><CheckCircle2 size={16} /> Terima</button><button type="button" className="secondary-button" onClick={(event) => { event.stopPropagation(); onReviewReschedule(item, "Rejected"); }}>Tolak</button></div>
-                    ) : (
+                    ) : !vendorMode && queueType === "hold" ? (
                       <button type="button" className="reschedule-button" onClick={(event) => { event.stopPropagation(); onReschedule(item); }}>
                         <CalendarClock size={16} /> PIC Reschedule
                       </button>
+                    ) : (
+                      <span className="pending-reason">Informasi saja</span>
                     )}
                   </td>
                 </tr>
@@ -1914,10 +2099,10 @@ function UrgentApprovalList({
         </div>
         <div className="overflow-x-auto">
           <table className="pending-table">
-            <thead><tr><th>Kode Approval</th><th>Customer</th><th>Jadwal Diajukan</th><th>PIC Provisioning</th><th>Tindakan</th></tr></thead>
+            <thead><tr><th scope="col">Kode Approval</th><th scope="col">Customer</th><th scope="col">Jadwal Diajukan</th><th scope="col">PIC Provisioning</th><th scope="col">Tindakan</th></tr></thead>
             <tbody>
               {requests.map((item) => (
-                <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
+                <tr key={item.id}>
                   <td data-label="Kode Approval"><b className="approval-code">{item.approvalCode}</b></td>
                   <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId}</span></td>
                   <td data-label="Jadwal Diajukan"><b className="capitalize">{formatActivationDate(item.activationDate)}</b><span>{item.timeSlot}</span></td>
@@ -2127,7 +2312,6 @@ function Metric({
 }
 
 function RequestForm({
-  requests,
   picCounts,
   slotCounts,
   serverNow,
@@ -2139,7 +2323,6 @@ function RequestForm({
   urgent,
   onCancel,
 }: {
-  requests: ActivationRequest[];
   picCounts: Record<string, number>;
   slotCounts: Record<string, number>;
   serverNow: { date: string; hour: number; minute: number };
@@ -2181,16 +2364,16 @@ function RequestForm({
       <div className="mb-6">
         <span className="eyebrow"><ShieldCheck size={13} /> VENDOR SUBMISSION</span>
         <h1 className="mt-3 text-3xl font-bold tracking-tight lg:text-4xl">
-          {editing ? "Edit Request Aktivasi" : urgent ? "Request New Urgent" : "Request Aktivasi Customer"}
+          {editing ? "Edit Request Aktivasi" : urgent ? "Request Urgent" : "Request Aktivasi Customer"}
         </h1>
         <p className="mt-2 text-sm text-slate-400">
-          Lengkapi seluruh data agar jadwal dapat diverifikasi Team Provisioning.
+          Lengkapi data yang sama untuk Request Baru maupun Request Urgent. Perbedaannya ada pada jalur approval dan batas waktu pengajuan.
         </p>
-        <div className="request-window open">
-          <Clock3 size={18} />
+        <div className={`request-window ${urgent ? "urgent" : "open"}`}>
+          {urgent ? <Flame size={18} /> : <Clock3 size={18} />}
           <div>
             <b>{editing ? "Mode edit request" : urgent ? "Memerlukan Approval" : "Pengajuan request dibuka"}</b>
-            <span>{editing ? "Perbarui data lalu simpan perubahan." : urgent ? "Request akan masuk ke menu Urgent Approval untuk disetujui atau dijadwalkan ulang." : "Request reguler dibuka sampai pukul 17:00 WIB. Setelah itu, gunakan Request Urgent."}</span>
+            <span>{editing ? "Perbarui data lalu simpan perubahan." : urgent ? "Request masuk ke Urgent Approval. Jadwal baru aktif setelah disetujui Superuser." : "Request Baru diproses tanpa approval selama diajukan sebelum pukul 17:00 WIB."}</span>
           </div>
         </div>
       </div>
@@ -2201,8 +2384,14 @@ function RequestForm({
           onSubmit();
         }}
       >
-        <FormSection number="01" title="Jadwal Aktivasi" icon={<CalendarDays size={18} />}>
+        <FormSection number="01" title="Jadwal Aktivasi" description="Pilih tanggal dan slot yang masih tersedia untuk pekerjaan ini." icon={<CalendarDays size={18} />}>
           <div className="form-grid">
+            <Field label="Email">
+              <input required type="email" placeholder="nama@perusahaan.com" {...input("email")} />
+            </Field>
+            <Field label="Hari">
+              <input value={form.activationDate ? formatActivationDay(form.activationDate) : "-"} readOnly aria-label="Hari aktivasi" />
+            </Field>
             <Field label="Tanggal Aktivasi">
               <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
                 <PopoverTrigger asChild><button type="button" className="activation-date-trigger"><span>{form.activationDate ? formatActivationDate(form.activationDate) : "Pilih tanggal aktivasi"}</span><CalendarDays size={19} /></button></PopoverTrigger>
@@ -2233,7 +2422,7 @@ function RequestForm({
             <Field label="Catatan Tambahan" wide><textarea rows={3} placeholder="Kebutuhan akses, kendala lokasi, atau informasi tambahan" {...input("notes")} /></Field>
           </div>
         </FormSection>
-        <FormSection number="02" title="Data Customer" icon={<Building2 size={18} />}>
+        <FormSection number="02" title="Data Customer" description="Gunakan nama, ID, produk, dan bandwidth yang sama dengan data master." icon={<Building2 size={18} />}>
           <div className="form-grid">
             <Field label="Nama Customer" wide>
               <input
@@ -2241,6 +2430,9 @@ function RequestForm({
                 placeholder="Nama perusahaan atau customer"
                 {...input("customerName")}
               />
+            </Field>
+            <Field label="Nama & No. Telp Customer" wide>
+              <input required placeholder="Nama kontak · 08xxxxxxxxxx" {...input("customerContact")} />
             </Field>
             <Field label="Product Type" wide>
               <select required {...input("serviceType")}>
@@ -2257,6 +2449,9 @@ function RequestForm({
             <Field label="Site ID">
               <input required placeholder="S007xxxx" {...input("siteId")} />
             </Field>
+            <Field label="Site Name / Location Name" wide>
+              <input required placeholder="Nama lokasi site" {...input("siteName")} />
+            </Field>
             <Field label="Subs ID">
               <input required placeholder="SI07xxxx" {...input("subsId")} />
             </Field>
@@ -2270,16 +2465,21 @@ function RequestForm({
             <Field label="Work Order">
               <input required placeholder="021xxxxx" {...input("woNumber")} />
             </Field>
-            <Field label="Bandwidth">
-              <input
-                required
-                placeholder="Contoh: 1 Gbps"
-                {...input("bandwidth")}
-              />
+            <Field label="Bandwidth IX">
+              <BandwidthField id="bandwidth-ix" sheetLabel="Bandwidth IX" required value={form.bandwidthIx} onChange={(value) => setForm({ ...form, bandwidthIx: value })} />
+            </Field>
+            <Field label="Bandwidth IIX">
+              <BandwidthField id="bandwidth-iix" sheetLabel="Bandwidth IIX" required value={form.bandwidthIix} onChange={(value) => setForm({ ...form, bandwidthIix: value })} />
+            </Field>
+            <Field label="Local Loop">
+              <input required placeholder="Contoh: Metro / GPON / FO" {...input("localLoop")} />
+            </Field>
+            <Field label="Bukti koordinasi dengan customer" wide>
+              <input required placeholder="Link atau keterangan bukti koordinasi" {...input("coordinationProof")} />
             </Field>
           </div>
         </FormSection>
-        <FormSection number="03" title="Area & Penanggung Jawab" icon={<ShieldCheck size={18} />}>
+        <FormSection number="03" title="Area & Penanggung Jawab" description="Tentukan area layanan, vendor, dan PIC yang menerima pekerjaan." icon={<ShieldCheck size={18} />}>
           <div className="form-grid">
             <Field label="Area">
               <input
@@ -2301,6 +2501,9 @@ function RequestForm({
                 placeholder="Nama PIC Project"
                 {...input("projectPic")}
               />
+            </Field>
+            <Field label="PIC Aktivasi">
+              <input required placeholder="Nama PIC Aktivasi" {...input("activationPic")} />
             </Field>
             <Field label="PIC Vendor">
               <input
@@ -2335,7 +2538,7 @@ function RequestForm({
             </Field>
           </div>
         </FormSection>
-        <FormSection number="04" title="Perangkat & RFA" icon={<RadioTower size={18} />}>
+        <FormSection number="04" title="Perangkat & RFA" description="Lengkapi perangkat dan detail jaringan. Beberapa field menyesuaikan akses media." icon={<RadioTower size={18} />}>
           <div className="form-grid">
             <Field label="Perangkat yang Dipasang" wide>
               <textarea
@@ -2399,11 +2602,13 @@ function RequestForm({
               />
             </Field>
             <Field label="Type Kabel">
-              <input
-                required
-                placeholder="Contoh: FO 1 Core / 2 Core"
-                {...input("cableType")}
-              />
+              <select required {...input("cableType")}>
+                <option value="" disabled>Pilih type kabel</option>
+                <option>12 core</option>
+                <option>24 core</option>
+                <option>DW</option>
+                <option>Precone</option>
+              </select>
             </Field>
             <Field label="Kode FAT/ODP (Opsional)">
               <input
@@ -2432,6 +2637,26 @@ function RequestForm({
                 {...input("popOtbPort")}
               />
             </Field>
+            <Field label="Alokasi Port Switch POP">
+              <input required placeholder="Port switch POP" {...input("switchPopPortAllocation")} />
+            </Field>
+            <Field label="IP Customer">
+              <input required placeholder="IP customer" {...input("customerIp")} />
+            </Field>
+            {(form.accessMedia === "METRO" || form.accessMedia === "GPON") && (
+              <Field label="Build / Existing" wide>
+                <select required {...input("buildType")}>
+                  <option value="" disabled>Pilih build</option>
+                  <option>Build 1:8</option>
+                  <option>Build 1:4</option>
+                  <option>Existing 1:4</option>
+                  <option>Existing 1:8</option>
+                </select>
+              </Field>
+            )}
+            <Field label="Port ODP/FAT">
+              <input required placeholder="Port ODP/FAT" {...input("odpFatPort")} />
+            </Field>
             <Field label="POP ID">
               <input
                 required
@@ -2445,6 +2670,9 @@ function RequestForm({
                 placeholder="Contoh: POP Madura Sumenep"
                 {...input("popName")}
               />
+            </Field>
+            <Field label="Koordinat FAT">
+              <input required placeholder="Latitude, Longitude" {...input("fatCoordinates")} />
             </Field>
             <Field label="End to End" wide>
               <textarea
@@ -2493,11 +2721,13 @@ function RequestForm({
 function FormSection({
   number,
   title,
+  description,
   children,
   icon,
 }: {
   number: string;
   title: string;
+  description: string;
   children: React.ReactNode;
   icon: React.ReactNode;
 }) {
@@ -2505,11 +2735,64 @@ function FormSection({
     <section className="form-section">
       <div className="section-title">
         <span>{number}</span>
-        <div>{icon}</div>
-        <h2>{title}</h2>
+        <div className="section-title-icon">{icon}</div>
+        <div className="section-title-copy">
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
       </div>
       {children}
     </section>
+  );
+}
+
+function parseBandwidth(value: string) {
+  const match = value.trim().match(/^(\d+(?:[.,]\d+)?)\s*(Mbps|Gbps|Tbps)$/i);
+  if (!match) return { amount: value, unit: "Gbps" };
+  return { amount: match[1], unit: bandwidthUnits.find((unit) => unit.toLowerCase() === match[2].toLowerCase()) ?? "Gbps" };
+}
+
+function BandwidthField({
+  id,
+  sheetLabel,
+  value,
+  onChange,
+  required = false,
+}: {
+  id: string;
+  sheetLabel: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  const parsed = parseBandwidth(value);
+  const update = (amount: string, unit: string) => onChange(amount.trim() ? `${amount.trim()} ${unit}` : "");
+  return (
+    <div className="bandwidth-field">
+      <div className="bandwidth-input-wrap">
+        <input
+          id={id}
+          required={required}
+          type="text"
+          inputMode="decimal"
+          pattern="^\\d+(?:[.,]\\d+)?$"
+          title="Masukkan angka bandwidth, misalnya 1 atau 0,5"
+          value={parsed.amount}
+          onChange={(event) => update(event.target.value, parsed.unit)}
+          placeholder="1"
+          aria-label="Nilai bandwidth"
+          aria-describedby={`${id}-hint`}
+        />
+        <select
+          value={parsed.unit}
+          onChange={(event) => update(parsed.amount, event.target.value)}
+          aria-label="Satuan bandwidth"
+        >
+          {bandwidthUnits.map((unit) => <option key={unit}>{unit}</option>)}
+        </select>
+      </div>
+      <small id={`${id}-hint`} className="field-hint">Format kolom sheet: {sheetLabel} · contoh 1 Gbps.</small>
+    </div>
   );
 }
 

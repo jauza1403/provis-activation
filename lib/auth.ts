@@ -253,7 +253,9 @@ export async function ensureActivationRequestsTable(): Promise<void> {
         created_at TEXT NOT NULL,
         deadline TEXT NOT NULL,
         activation_date TEXT NOT NULL,
+        activation_day TEXT NOT NULL DEFAULT '',
         time_slot TEXT NOT NULL,
+        email TEXT NOT NULL DEFAULT '',
         area TEXT NOT NULL,
         vendor_name TEXT NOT NULL,
         region_scope TEXT NOT NULL DEFAULT '',
@@ -263,14 +265,20 @@ export async function ensureActivationRequestsTable(): Promise<void> {
         is_relocation INTEGER NOT NULL DEFAULT 0,
         is_relayout INTEGER NOT NULL DEFAULT 0,
         customer_name TEXT NOT NULL DEFAULT '',
+        customer_contact TEXT NOT NULL DEFAULT '',
+        activation_pic TEXT NOT NULL DEFAULT '',
         site_id TEXT NOT NULL,
         subs_id TEXT NOT NULL,
+        site_name TEXT NOT NULL DEFAULT '',
         opp_number TEXT NOT NULL,
         wo_number TEXT NOT NULL,
         device_plan TEXT NOT NULL,
         install_switch INTEGER NOT NULL DEFAULT 0,
         switch_brand TEXT NOT NULL DEFAULT '',
         vlan_switch TEXT NOT NULL DEFAULT '',
+        switch_pop_port_allocation TEXT NOT NULL DEFAULT '',
+        customer_ip TEXT NOT NULL DEFAULT '',
+        build_type TEXT NOT NULL DEFAULT '',
         rfa_cores INTEGER NOT NULL,
         pop_allocation TEXT NOT NULL,
         pop_id TEXT NOT NULL DEFAULT '',
@@ -282,7 +290,13 @@ export async function ensureActivationRequestsTable(): Promise<void> {
         attenuation TEXT NOT NULL DEFAULT '',
         customer_port TEXT NOT NULL DEFAULT '',
         pop_otb_port TEXT NOT NULL DEFAULT '',
+        odp_fat_port TEXT NOT NULL DEFAULT '',
+        fat_coordinates TEXT NOT NULL DEFAULT '',
         bandwidth TEXT NOT NULL DEFAULT '',
+        bandwidth_ix TEXT NOT NULL DEFAULT '',
+        bandwidth_iix TEXT NOT NULL DEFAULT '',
+        local_loop TEXT NOT NULL DEFAULT '',
+        coordination_proof TEXT NOT NULL DEFAULT '',
         project_pic TEXT NOT NULL,
         vendor_pic TEXT NOT NULL,
         provisioning_pic TEXT NOT NULL,
@@ -311,6 +325,20 @@ export async function ensureActivationRequestsTable(): Promise<void> {
     `);
 
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN work_type TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN activation_day TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN email TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN customer_contact TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN activation_pic TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN site_name TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN switch_pop_port_allocation TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN customer_ip TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN build_type TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN odp_fat_port TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN fat_coordinates TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN bandwidth_ix TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN bandwidth_iix TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN local_loop TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN coordination_proof TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN region_scope TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN reschedule_reason TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN pic_reschedule_reason TEXT NOT NULL DEFAULT ''`).catch(() => undefined);

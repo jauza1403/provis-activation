@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   ArrowRight,
   KeyRound,
@@ -34,7 +35,7 @@ export default function LoginPage() {
         body: JSON.stringify({ username: username.trim(), password: password.trim() }),
       });
 
-      const data = (await res.json()) as any;
+      const data = (await res.json()) as { error?: string };
 
       if (!res.ok) {
         throw new Error(data.error || "Gagal melakukan autentikasi.");
@@ -60,9 +61,12 @@ export default function LoginPage() {
         {/* Brand header */}
         <div className="flex flex-col items-center text-center mb-8">
           <div className="brand-logo-shell mb-3 inline-flex items-center justify-center p-3 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl">
-            <img
+            <Image
               src="/iforte-logo.png"
               alt="iForte"
+              width={132}
+              height={32}
+              priority
               className="h-8 object-contain"
             />
           </div>

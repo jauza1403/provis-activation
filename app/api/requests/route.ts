@@ -31,21 +31,26 @@ function validSchedule(date: string, slot: string, now = getWibClock()) {
     && candidateSlots(slot).length > 0
     && (date > now.date || (date === now.date && nowMinutes >= slotStartMinutes(slot)));
 }
+function activationDay(date: string) {
+  return new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", weekday: "long" })
+    .format(new Date(`${date}T00:00:00+07:00`));
+}
 const fullResponse = () => NextResponse.json({ error: "Slot yang dipilih dan slot berikutnya penuh. Pilih slot sebelumnya atau tanggal lain." }, { status: 409 });
 const required = [
-  "activationDate", "timeSlot", "area", "vendorName",
+  "email", "activationDate", "timeSlot", "area", "vendorName",
   "accessMedia", "serviceType", "customerName", "siteId", "subsId", "oppNumber", "woNumber",
-  "workType",
-  "bandwidth", "devicePlan",
-  "projectPic", "vendorPic", "provisioningPic",
+  "workType", "customerContact", "activationPic", "siteName",
+  "bandwidthIx", "bandwidthIix", "localLoop", "coordinationProof",
+  "devicePlan", "projectPic", "vendorPic", "provisioningPic",
 ] as const;
 
 const rfaFields = [
   "popId", "popName", "cableLength", "cableType", "endToEnd",
-  "attenuation", "customerPort", "popOtbPort",
+  "attenuation", "customerPort", "popOtbPort", "switchPopPortAllocation",
+  "customerIp", "odpFatPort", "fatCoordinates",
 ] as const;
 
-const editable = [...required, ...rfaFields, "fatOdpCode", "notes", "rescheduleReason", "picRescheduleReason"] as const;
+const editable = [...required, ...rfaFields, "buildType", "fatOdpCode", "notes", "rescheduleReason", "picRescheduleReason"] as const;
 
 function createApprovalCode() {
   return `URG-${crypto.randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase()}`;
@@ -147,6 +152,7 @@ export async function POST(request: Request) {
       );
     }
     const wibNow = getWibClock();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body = (await request.json()) as any;
     const vendorName = user.role === "vendor_user" ? user.vendorName.trim() : String(body.vendorName ?? "").trim();
     const regionScope = user.role === "vendor_user"
@@ -158,12 +164,15 @@ export async function POST(request: Request) {
     const missing = required.find((key) => !String(body[key] ?? "").trim());
     const needsRfa = !NO_RFA_ACCESS_MEDIA.has(String(body.accessMedia));
     const missingRfa = needsRfa && rfaFields.find((key) => !String(body[key] ?? "").trim());
+    const needsBuildType = ["METRO", "GPON"].includes(String(body.accessMedia ?? "").trim().toUpperCase());
+    const missingBuildType = needsRfa && needsBuildType && !String(body.buildType ?? "").trim();
     const missingSwitchData = Boolean(body.installSwitch) && (
       !String(body.switchBrand ?? "").trim() || !String(body.vlanSwitch ?? "").trim()
     );
     if (
       missing ||
       missingRfa ||
+      missingBuildType ||
       missingSwitchData ||
       (needsRfa && (!Number.isInteger(Number(body.rfaCores)) || Number(body.rfaCores) < 1))
     ) {
@@ -185,7 +194,9 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString(),
       deadline: `${wibNow.date}T23:59`,
       activationDate: body.activationDate,
+      activationDay: activationDay(body.activationDate),
       timeSlot: body.timeSlot,
+      email: String(body.email ?? "").trim().toLowerCase(),
       area: body.area.trim(),
       vendorName,
       regionScope,
@@ -195,14 +206,20 @@ export async function POST(request: Request) {
       isRelocation: Boolean(body.isRelocation),
       isRelayout: Boolean(body.isRelayout),
       customerName: body.customerName.trim(),
+      customerContact: String(body.customerContact ?? "").trim(),
+      activationPic: String(body.activationPic ?? "").trim(),
       siteId: body.siteId.trim().toUpperCase(),
       subsId: body.subsId.trim().toUpperCase(),
+      siteName: String(body.siteName ?? "").trim(),
       oppNumber: body.oppNumber.trim(),
       woNumber: body.woNumber.trim(),
       devicePlan: body.devicePlan.trim(),
       installSwitch: Boolean(body.installSwitch),
       switchBrand: body.installSwitch ? String(body.switchBrand ?? "").trim() : "",
       vlanSwitch: body.installSwitch ? String(body.vlanSwitch ?? "").trim() : "",
+      switchPopPortAllocation: needsRfa ? String(body.switchPopPortAllocation ?? "").trim() : "",
+      customerIp: needsRfa ? String(body.customerIp ?? "").trim() : "",
+      buildType: needsRfa ? String(body.buildType ?? "").trim() : "",
       rfaCores: needsRfa ? Number(body.rfaCores) : 0,
       popAllocation: "",
       popId: needsRfa ? String(body.popId ?? "").trim().toUpperCase() : "",
@@ -214,7 +231,13 @@ export async function POST(request: Request) {
       attenuation: needsRfa ? String(body.attenuation ?? "").trim() : "",
       customerPort: needsRfa ? String(body.customerPort ?? "").trim() : "",
       popOtbPort: needsRfa ? String(body.popOtbPort ?? "").trim() : "",
-      bandwidth: String(body.bandwidth ?? "").trim(),
+      odpFatPort: needsRfa ? String(body.odpFatPort ?? "").trim() : "",
+      fatCoordinates: needsRfa ? String(body.fatCoordinates ?? "").trim() : "",
+      bandwidth: [body.bandwidthIx, body.bandwidthIix].map((value) => String(value ?? "").trim()).filter(Boolean).join(" / "),
+      bandwidthIx: String(body.bandwidthIx ?? "").trim(),
+      bandwidthIix: String(body.bandwidthIix ?? "").trim(),
+      localLoop: String(body.localLoop ?? "").trim(),
+      coordinationProof: String(body.coordinationProof ?? "").trim(),
       projectPic: body.projectPic.trim(),
       vendorPic: body.vendorPic.trim(),
       provisioningPic: body.provisioningPic,
@@ -260,6 +283,7 @@ export async function PATCH(request: Request) {
         { status: 401 },
       );
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body = (await request.json()) as any;
     if (!body.id) {
       return NextResponse.json(
@@ -276,13 +300,9 @@ export async function PATCH(request: Request) {
       }
       const approvalStatus = String(current.rescheduleApprovalStatus || '');
       const vendorApproval = approvalStatus === 'Pending PIC Approval';
-      const picApproval = approvalStatus === 'Pending Vendor Approval';
-      const vendor = user.vendorName.trim().toLowerCase();
-      const region = String(user.regionScope ?? '').trim().toLowerCase();
       const receiverAllowed = vendorApproval
         ? user.role === 'superuser' || user.role === 'project_user'
-        : picApproval && user.role === 'vendor_user' && vendor && VALID_REGION_SCOPES.has(region)
-          && current.vendorName.trim().toLowerCase() === vendor && requestRegion(current) === region;
+        : false;
       if (!receiverAllowed) return NextResponse.json({ error: "Anda tidak memiliki izin untuk memproses reschedule ini." }, { status: 403 });
       const proposedDate = String(body.activationDate ?? (vendorApproval ? current.vendorRescheduleDate : current.picRescheduleDate));
       const proposedSlot = String(body.timeSlot ?? (vendorApproval ? current.vendorRescheduleTimeSlot : current.picRescheduleTimeSlot));
@@ -348,6 +368,10 @@ export async function PATCH(request: Request) {
       update.vlanSwitch = body.installSwitch ? String(body.vlanSwitch).trim() : "";
     }
     const skipsRfa = NO_RFA_ACCESS_MEDIA.has(String(body.accessMedia));
+    const nextAccessMedia = String(body.accessMedia ?? current.accessMedia).trim().toUpperCase();
+    if (!skipsRfa && ["METRO", "GPON"].includes(nextAccessMedia) && !String(body.buildType ?? current.buildType ?? "").trim()) {
+      return NextResponse.json({ error: "Pilih jenis build atau existing untuk Metro/GPON." }, { status: 400 });
+    }
     for (const key of editable) {
       if (body[key] === undefined) continue;
       const value = String(body[key] ?? "").trim();
@@ -366,8 +390,15 @@ export async function PATCH(request: Request) {
       }
       update.rfaCores = skipsRfa ? 0 : cores;
     }
+    if (body.activationDate !== undefined) update.activationDay = activationDay(String(update.activationDate ?? current.activationDate));
+    if (body.bandwidthIx !== undefined || body.bandwidthIix !== undefined) {
+      const nextIx = String(update.bandwidthIx ?? current.bandwidthIx ?? "").trim();
+      const nextIix = String(update.bandwidthIix ?? current.bandwidthIix ?? "").trim();
+      update.bandwidth = [nextIx, nextIix].filter(Boolean).join(" / ");
+    }
     if (skipsRfa) {
       for (const key of rfaFields) update[key] = "";
+      update.buildType = "";
     }
     if (!Object.keys(update).length) {
       return NextResponse.json({ error: "Tidak ada perubahan untuk disimpan." }, { status: 400 });
@@ -388,6 +419,9 @@ export async function PATCH(request: Request) {
     if (isPicReschedule) {
       update.picRescheduleDate = date;
       update.picRescheduleTimeSlot = requestedSlot;
+      update.activationDate = date;
+      update.timeSlot = requestedSlot;
+      update.status = "Pending";
     }
     if (isVendorReschedule) {
       update.vendorRescheduleDate = date;
@@ -397,16 +431,18 @@ export async function PATCH(request: Request) {
       if (current.rescheduleApprovalStatus === "Pending PIC Approval" || current.rescheduleApprovalStatus === "Pending Vendor Approval") {
         return NextResponse.json({ error: "Masih ada reschedule yang menunggu approval." }, { status: 409 });
       }
-      delete update.activationDate;
-      delete update.timeSlot;
-      update.rescheduleApprovalStatus = isVendorReschedule ? "Pending PIC Approval" : "Pending Vendor Approval";
+      if (isVendorReschedule) {
+        delete update.activationDate;
+        delete update.timeSlot;
+      }
+      update.rescheduleApprovalStatus = isVendorReschedule ? "Pending PIC Approval" : "";
       update.rescheduleRequestedBy = isVendorReschedule ? "vendor" : "pic";
       update.rescheduleOriginalStatus = current.status;
       update.rescheduleApprovalReason = "";
       update.rescheduleApprovedBy = "";
       update.rescheduleApprovedAt = "";
     }
-    const changed = !isPicReschedule && !isVendorReschedule && (date !== current.activationDate || requestedSlot !== current.timeSlot);
+    const changed = isPicReschedule || (!isPicReschedule && !isVendorReschedule && (date !== current.activationDate || requestedSlot !== current.timeSlot));
     const nextPic = String(update.provisioningPic ?? current.provisioningPic);
     const changingPic = nextPic !== current.provisioningPic;
     if (changingPic) {
@@ -445,6 +481,7 @@ export async function DELETE(request: Request) {
         { status: 403 },
       );
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body = (await request.json()) as any;
     if (!body.id) {
       return NextResponse.json({ error: "ID request tidak ditemukan." }, { status: 400 });
