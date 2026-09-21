@@ -7,6 +7,12 @@ import { ensureActivationRequestsTable, getSessionUser } from "@/lib/auth";
 import { candidateSlots, SLOT_CAPACITY } from "@/lib/scheduling";
 const VALID_REGION_SCOPES = new Set(["jabo", "jabojabar", "regional"]);
 const NO_RFA_ACCESS_MEDIA = new Set(["Interkoneksi", "Existing Link"]);
+const NO_IP_SERVICE_TYPES = new Set([
+  "MWIFO - FO - Internet Service - Broadband Up To",
+  "MWIFO - GSM - Internet Service - Dedicated - M2M",
+  "VSAT - VSAT - Internet Service - Dedicated",
+  "MWIFO - Wireless - BOD Internet Skyfiber",
+]);
 function normalizeRegionScope(area: string) {
   const value = area.trim().toLowerCase();
   if (value.includes("jabo") && value.includes("jabar")) return "jabojabar";
@@ -47,7 +53,7 @@ const required = [
 const rfaFields = [
   "popId", "popName", "cableLength", "cableType", "endToEnd",
   "attenuation", "customerPort", "popOtbPort", "switchPopPortAllocation",
-  "customerIp", "odpFatPort", "fatCoordinates",
+  "odpFatPort", "fatCoordinates",
 ] as const;
 
 const editable = [...required, ...rfaFields, "buildType", "fatOdpCode", "notes", "rescheduleReason", "picRescheduleReason"] as const;
@@ -164,6 +170,8 @@ export async function POST(request: Request) {
     const missing = required.find((key) => !String(body[key] ?? "").trim());
     const needsRfa = !NO_RFA_ACCESS_MEDIA.has(String(body.accessMedia));
     const missingRfa = needsRfa && rfaFields.find((key) => !String(body[key] ?? "").trim());
+    const needsIp = needsRfa && !NO_IP_SERVICE_TYPES.has(String(body.serviceType ?? "").trim());
+    const missingIp = needsIp && !String(body.customerIp ?? "").trim();
     const needsBuildType = ["METRO", "GPON"].includes(String(body.accessMedia ?? "").trim().toUpperCase());
     const missingBuildType = needsRfa && needsBuildType && !String(body.buildType ?? "").trim();
     const missingSwitchData = Boolean(body.installSwitch) && (
@@ -172,6 +180,7 @@ export async function POST(request: Request) {
     if (
       missing ||
       missingRfa ||
+      missingIp ||
       missingBuildType ||
       missingSwitchData ||
       (needsRfa && (!Number.isInteger(Number(body.rfaCores)) || Number(body.rfaCores) < 1))
@@ -183,6 +192,8 @@ export async function POST(request: Request) {
     }
     if (!validSchedule(body.activationDate, body.timeSlot)) return NextResponse.json({ error: "Tanggal atau slot tidak valid." }, { status: 400 });
     const isUrgent = body.requestType === "Urgent";
+    const screenshotUrl = String(body.screenshotUrl ?? "").trim();
+    if (isUrgent && !screenshotUrl) return NextResponse.json({ error: "Mohon lampirkan screenshot untuk request urgent." }, { status: 400 });
     if (!isUrgent && wibNow.hour >= CUTOFF_HOUR) {
       return NextResponse.json(
         { error: "Pengajuan request reguler sudah tutup (setelah pukul 17:00 WIB). Gunakan Request Urgent." },
@@ -250,6 +261,7 @@ export async function POST(request: Request) {
       approvedAt: "",
       whatsappMessageId: "",
       notes: String(body.notes ?? "").trim(),
+      screenshotUrl,
     };
     const picAvailable = await getDb().all(sql`SELECT 1 WHERE ${picCapacity(row.provisioningPic)}`);
     if (!picAvailable.length) return NextResponse.json({ error: "PIC Provisioning sudah mencapai batas 7 request aktif." }, { status: 409 });
@@ -355,6 +367,7 @@ export async function PATCH(request: Request) {
     if (typeof body.pendingReason === "string") update.pendingReason = body.pendingReason.trim();
     if (body.provisioningPic) update.provisioningPic = body.provisioningPic;
     if (typeof body.notes === "string") update.notes = body.notes.trim();
+    if (typeof body.screenshotUrl === "string") update.screenshotUrl = body.screenshotUrl.trim();
     if (typeof body.isRelocation === "boolean") update.isRelocation = body.isRelocation;
     if (typeof body.isRelayout === "boolean") update.isRelayout = body.isRelayout;
     if (typeof body.installSwitch === "boolean") {

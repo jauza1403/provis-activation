@@ -1,6 +1,7 @@
 "use client";
 
 import { slots, SLOT_CAPACITY, candidateSlots } from "@/lib/scheduling";
+import { exportWithScheduleTemplate } from "@/lib/schedule-template-export";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import Image from "next/image";
@@ -14,6 +15,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  CircleAlert,
   Clock3,
   LayoutDashboard,
   Lock,
@@ -27,6 +29,7 @@ import {
   RadioTower,
   Search,
   Send,
+  ImagePlus,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -132,6 +135,7 @@ type ActivationRequest = {
   approvedAt: string;
   whatsappMessageId: string;
   notes: string;
+  screenshotUrl: string;
 };
 
 type CurrentUser = {
@@ -223,7 +227,7 @@ const workTypes = [
   "Upgrade Equipment with BW",
 ];
 const switchBrands = ["Huawei", "H3C", "Raisecom", "Cisco"];
-const bandwidthUnits = ["Mbps", "Gbps", "Tbps"];
+const bandwidthUnits = ["Mbps", "Gbps"];
 const switchEmailTo = [
   "bertus.pamungkas@iforte.co.id",
   "abdul.khamim@iforte.co.id",
@@ -239,6 +243,18 @@ const switchEmailCc = [
   "presales@iforte.co.id",
 ];
 const noRfaAccessMedia = ["Interkoneksi", "Existing Link"];
+const noIpServiceTypes = [
+  "MWIFO - FO - Internet Service - Broadband Up To",
+  "MWIFO - GSM - Internet Service - Dedicated - M2M",
+  "VSAT - VSAT - Internet Service - Dedicated",
+  "MWIFO - Wireless - BOD Internet Skyfiber",
+];
+const projectPics = [
+  "Andi Prayudi", "Andy", "Anfal", "Azis", "Candra", "Dedi Irawan", "Devri",
+  "Eko", "Enggar", "Fahmi", "Firman", "Gondo", "Handi", "Ibnu", "Iman",
+  "Irfan Arfandi", "Masturi", "Matyas", "Melisa", "Pringgo", "Saepul",
+  "Septian", "Sofian", "Ubaydillah", "Udawan", "Uswa", "Wawan", "Yafizham", "Zillah",
+];
 const statuses = [
   "Idle",
   "On Progress",
@@ -474,6 +490,7 @@ const emptyForm = {
   vendorPic: "",
   provisioningPic: pics[0],
   notes: "",
+  screenshotUrl: "",
 };
 
 declare global {
@@ -735,6 +752,15 @@ export default function Home() {
     [requests, query, statusFilter, overdueOnly, today],
   );
 
+  async function exportScheduleTemplate() {
+    try {
+      await exportWithScheduleTemplate(`Schedule-Aktivasi-${today}`, filtered);
+      setMessage(`Export template berhasil dibuat untuk ${filtered.length} request.`, "success");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Export template gagal dibuat.");
+    }
+  }
+
   async function updateRequest(
     id: string,
     field: "status" | "provisioningPic",
@@ -979,6 +1005,7 @@ export default function Home() {
       vendorPic: item.vendorPic,
       provisioningPic: item.provisioningPic,
       notes: item.notes,
+      screenshotUrl: item.screenshotUrl || "",
     });
     setSelectedRequest(null);
     setView("form");
@@ -1386,6 +1413,9 @@ export default function Home() {
                       <option key={status}>{status}</option>
                     ))}
                   </select>
+                  <button type="button" className="secondary-button" onClick={() => void exportScheduleTemplate()} disabled={busy || filtered.length === 0}>
+                    Export Schedule Excel
+                  </button>
                 </div>
                 <div className="overflow-x-auto">
                   <table>
@@ -2335,6 +2365,34 @@ function RequestForm({
   onCancel: () => void;
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [screenshotUploading, setScreenshotUploading] = useState(false);
+  const [screenshotError, setScreenshotError] = useState("");
+  const MAX_SCREENSHOT_BYTES = 20 * 1024 * 1024;
+  async function uploadScreenshot(file: File) {
+    setScreenshotError("");
+    if (!file.type.startsWith("image/")) {
+      setScreenshotError("File harus berupa gambar (screenshot).");
+      return;
+    }
+    if (file.size > MAX_SCREENSHOT_BYTES) {
+      setScreenshotError("Ukuran file maksimal 20MB.");
+      return;
+    }
+    setScreenshotUploading(true);
+    try {
+      const data = new FormData();
+      data.append("file", file);
+      const response = await fetch("/api/uploads", { method: "POST", body: data });
+      const result = (await response.json()) as { url?: string; error?: string };
+      if (!response.ok || !result.url) throw new Error(result.error || "Gambar gagal diunggah.");
+      const uploadedUrl = result.url;
+      setForm((current) => ({ ...current, screenshotUrl: uploadedUrl }));
+    } catch (error) {
+      setScreenshotError(error instanceof Error ? error.message : "Gambar gagal diunggah.");
+    } finally {
+      setScreenshotUploading(false);
+    }
+  }
   const counts = Object.fromEntries(slots.map((slot) => [slot, slotCounts[`${form.activationDate}|${slot}`] ?? 0]));
   const effectiveSlot = form.activationDate ? candidateSlots(form.timeSlot).find((slot) => counts[slot] < SLOT_CAPACITY && isSlotOpen(slot, form.activationDate, serverNow)) ?? "" : form.timeSlot;
   const scheduleFull = Boolean(form.activationDate) && !effectiveSlot;
@@ -2381,6 +2439,10 @@ function RequestForm({
         className="space-y-5"
         onSubmit={(event) => {
           event.preventDefault();
+          if (urgent && !form.screenshotUrl) {
+            setScreenshotError("Screenshot wajib diunggah untuk Request Urgent.");
+            return;
+          }
           onSubmit();
         }}
       >
@@ -2496,11 +2558,10 @@ function RequestForm({
               />
             </Field>
             <Field label="PIC Project">
-              <input
-                required
-                placeholder="Nama PIC Project"
-                {...input("projectPic")}
-              />
+              <select required {...input("projectPic")}>
+                <option value="">Pilih PIC Project…</option>
+                {projectPics.map((pic) => <option key={pic}>{pic}</option>)}
+              </select>
             </Field>
             <Field label="PIC Aktivasi">
               <input required placeholder="Nama PIC Aktivasi" {...input("activationPic")} />
@@ -2547,6 +2608,10 @@ function RequestForm({
                 placeholder="Contoh: SFP 10G 20 km, MC220, Router MikroTik…"
                 {...input("devicePlan")}
               />
+              <div className="internet-service-notice" role="note">
+                <CircleAlert size={18} aria-hidden="true" />
+                <span>Apabila memilih product Internet Service, harap mencantumkan nama router dan kebutuhannya.</span>
+              </div>
             </Field>
             <Field label="Additional Perangkat" wide>
               <div className="switch-install-control">
@@ -2641,7 +2706,7 @@ function RequestForm({
               <input required placeholder="Port switch POP" {...input("switchPopPortAllocation")} />
             </Field>
             <Field label="IP Customer">
-              <input required placeholder="IP customer" {...input("customerIp")} />
+              <input required={!noIpServiceTypes.includes(form.serviceType)} placeholder="IP customer" {...input("customerIp")} />
             </Field>
             {(form.accessMedia === "METRO" || form.accessMedia === "GPON") && (
               <Field label="Build / Existing" wide>
@@ -2691,6 +2756,28 @@ function RequestForm({
             )}
           </div>
         </FormSection>
+        {urgent && (
+          <FormSection number="05" title="Screenshot Bukti" description="Lampirkan bukti yang menjelaskan kebutuhan urgent." icon={<ClipboardList size={18} />}>
+            <div className="form-grid">
+              <Field label="Screenshot Bukti Urgent" wide>
+                {form.screenshotUrl ? (
+                  <div className="screenshot-preview">
+                    <Image src={form.screenshotUrl} alt="Screenshot bukti urgent" width={960} height={540} unoptimized />
+                    <button type="button" className="secondary-button" disabled={screenshotUploading} onClick={() => setForm((current) => ({ ...current, screenshotUrl: "" }))}>Hapus screenshot</button>
+                  </div>
+                ) : (
+                  <div className="screenshot-dropzone">
+                    <input type="file" accept="image/*" disabled={screenshotUploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadScreenshot(file); }} />
+                    <ImagePlus size={30} aria-hidden="true" />
+                    <b>{screenshotUploading ? "Mengunggah gambar…" : "Klik untuk pilih screenshot"}</b>
+                    <small>Wajib untuk request urgent · format JPG/PNG · maksimal 20MB</small>
+                  </div>
+                )}
+                {screenshotError && <p className="field-error" role="alert">{screenshotError}</p>}
+              </Field>
+            </div>
+          </FormSection>
+        )}
         <div className="flex flex-wrap justify-end gap-3">
           {editing && (
             <button disabled={busy} className="secondary-button" type="button" onClick={onCancel}>
@@ -2744,10 +2831,11 @@ function FormSection({
       {children}
     </section>
   );
+
 }
 
 function parseBandwidth(value: string) {
-  const match = value.trim().match(/^(\d+(?:[.,]\d+)?)\s*(Mbps|Gbps|Tbps)$/i);
+  const match = value.trim().match(/^(\d+(?:[.,]\d+)?)\s*(Mbps|Gbps)$/i);
   if (!match) return { amount: value, unit: "Gbps" };
   return { amount: match[1], unit: bandwidthUnits.find((unit) => unit.toLowerCase() === match[2].toLowerCase()) ?? "Gbps" };
 }
