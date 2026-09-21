@@ -285,6 +285,7 @@ export async function ensureActivationRequestsTable(): Promise<void> {
         switch_pop_port_allocation TEXT NOT NULL DEFAULT '',
         customer_ip TEXT NOT NULL DEFAULT '',
         build_type TEXT NOT NULL DEFAULT '',
+        build_detail TEXT NOT NULL DEFAULT '',
         rfa_cores INTEGER NOT NULL,
         pop_allocation TEXT NOT NULL,
         pop_id TEXT NOT NULL DEFAULT '',
@@ -340,6 +341,7 @@ export async function ensureActivationRequestsTable(): Promise<void> {
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN switch_pop_port_allocation TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN customer_ip TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN build_type TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+    await db.run(sql`ALTER TABLE activation_requests ADD COLUMN build_detail TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN odp_fat_port TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN fat_coordinates TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
     await db.run(sql`ALTER TABLE activation_requests ADD COLUMN bandwidth_ix TEXT NOT NULL DEFAULT ''`).catch(() => undefined);

@@ -56,7 +56,8 @@ const rfaFields = [
   "odpFatPort", "fatCoordinates",
 ] as const;
 
-const editable = [...required, ...rfaFields, "buildType", "fatOdpCode", "notes", "rescheduleReason", "picRescheduleReason"] as const;
+const editable = [...required, ...rfaFields, "buildType", "buildDetail", "fatOdpCode", "notes", "rescheduleReason", "picRescheduleReason"] as const;
+const requiredRfaFields = rfaFields.filter((key) => key !== "odpFatPort");
 
 function createApprovalCode() {
   return `URG-${crypto.randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase()}`;
@@ -71,7 +72,7 @@ function getWibClock(date = new Date()) {
   };
 }
 
-const allowedStatus = ["Idle", "Request Approval", "On Progress", "Completed", "Reschedule", "Pending"];
+const allowedStatus = ["Idle", "On Progress", "Completed", "Reschedule", "Pending"];
 const CUTOFF_HOUR = 17;
 
 function slotStartMinutes(timeSlot: string) {
@@ -109,7 +110,6 @@ export async function GET(request: Request) {
       const reachedStart =
         row.activationDate < now.date ||
         (row.activationDate === now.date && nowMinutes >= slotStartMinutes(row.timeSlot));
-      if (row.approvalStatus === "Waiting Approval" && status !== "Completed") status = "Request Approval";
       if (row.approvalStatus !== "Waiting Approval" && !String(row.rescheduleApprovalStatus || "").startsWith("Pending") && ["Idle", "Reschedule"].includes(status) && reachedStart) status = "On Progress";
       return status === row.status ? row : { ...row, status };
     });
@@ -170,11 +170,12 @@ export async function POST(request: Request) {
     }
     const missing = required.find((key) => !String(body[key] ?? "").trim());
     const needsRfa = !NO_RFA_ACCESS_MEDIA.has(String(body.accessMedia));
-    const missingRfa = needsRfa && rfaFields.find((key) => !String(body[key] ?? "").trim());
+    const missingRfa = needsRfa && requiredRfaFields.find((key) => !String(body[key] ?? "").trim());
     const needsIp = needsRfa && !NO_IP_SERVICE_TYPES.has(String(body.serviceType ?? "").trim());
     const missingIp = needsIp && !String(body.customerIp ?? "").trim();
     const needsBuildType = ["METRO", "GPON"].includes(String(body.accessMedia ?? "").trim().toUpperCase());
     const missingBuildType = needsRfa && needsBuildType && !String(body.buildType ?? "").trim();
+    const missingBuildDetail = String(body.buildType ?? "").trim() === "Khusus Metro" && !String(body.buildDetail ?? "").trim();
     const missingSwitchData = Boolean(body.installSwitch) && (
       !String(body.switchBrand ?? "").trim() || !String(body.vlanSwitch ?? "").trim()
     );
@@ -183,6 +184,7 @@ export async function POST(request: Request) {
       missingRfa ||
       missingIp ||
       missingBuildType ||
+      missingBuildDetail ||
       missingSwitchData ||
       (needsRfa && (!Number.isInteger(Number(body.rfaCores)) || Number(body.rfaCores) < 1))
     ) {
@@ -232,6 +234,7 @@ export async function POST(request: Request) {
       switchPopPortAllocation: needsRfa ? String(body.switchPopPortAllocation ?? "").trim() : "",
       customerIp: needsRfa ? String(body.customerIp ?? "").trim() : "",
       buildType: needsRfa ? String(body.buildType ?? "").trim() : "",
+      buildDetail: needsRfa ? String(body.buildDetail ?? "").trim() : "",
       rfaCores: needsRfa ? Number(body.rfaCores) : 0,
       popAllocation: "",
       popId: needsRfa ? String(body.popId ?? "").trim().toUpperCase() : "",
@@ -253,7 +256,7 @@ export async function POST(request: Request) {
       projectPic: body.projectPic.trim(),
       vendorPic: body.vendorPic.trim(),
       provisioningPic: body.provisioningPic,
-      status: isUrgent ? "Request Approval" : "Idle",
+      status: "Idle",
       completedAt: "",
       pendingReason: "",
       requestType: isUrgent ? "Urgent" : "Regular",
@@ -384,13 +387,8 @@ export async function PATCH(request: Request) {
       update.status = body.status;
       update.completedAt = body.status === "Completed" ? new Date().toISOString() : "";
     }
-    if (body.approvalStatus === "Approved") {
-      update.approvalStatus = "Approved";
-      update.approvedAt = new Date().toISOString();
-      update.status = "On Progress";
-    } else if (body.approvalStatus) {
-      update.approvalStatus = body.approvalStatus;
-    }
+    if (body.approvalStatus) update.approvalStatus = body.approvalStatus;
+    if (body.approvalStatus === "Approved") update.approvedAt = new Date().toISOString();
     if (typeof body.pendingReason === "string") update.pendingReason = body.pendingReason.trim();
     if (body.provisioningPic) update.provisioningPic = body.provisioningPic;
     if (typeof body.notes === "string") update.notes = body.notes.trim();
@@ -412,13 +410,16 @@ export async function PATCH(request: Request) {
     if (!skipsRfa && ["METRO", "GPON"].includes(nextAccessMedia) && !String(body.buildType ?? current.buildType ?? "").trim()) {
       return NextResponse.json({ error: "Pilih jenis build atau existing untuk Metro/GPON." }, { status: 400 });
     }
+    if (String(body.buildType ?? current.buildType ?? "").trim() === "Khusus Metro" && !String(body.buildDetail ?? current.buildDetail ?? "").trim()) {
+      return NextResponse.json({ error: "Mohon isi detail untuk build Khusus Metro." }, { status: 400 });
+    }
     for (const key of editable) {
       if (body[key] === undefined) continue;
       const value = String(body[key] ?? "").trim();
-      if (!["notes", "fatOdpCode", "workType"].includes(key) && !rfaFields.includes(key as typeof rfaFields[number]) && !value) {
+      if (!["notes", "fatOdpCode", "workType", "buildDetail"].includes(key) && !rfaFields.includes(key as typeof rfaFields[number]) && !value) {
         return NextResponse.json({ error: "Mohon lengkapi seluruh data wajib." }, { status: 400 });
       }
-      if (rfaFields.includes(key as typeof rfaFields[number]) && !skipsRfa && !value) {
+      if ((requiredRfaFields as readonly string[]).includes(key as string) && !skipsRfa && !value) {
         return NextResponse.json({ error: "Mohon lengkapi seluruh data RFA." }, { status: 400 });
       }
       update[key] = ["siteId", "subsId", "popId", "fatOdpCode"].includes(key) ? value.toUpperCase() : value;
@@ -439,6 +440,7 @@ export async function PATCH(request: Request) {
     if (skipsRfa) {
       for (const key of rfaFields) update[key] = "";
       update.buildType = "";
+      update.buildDetail = "";
     }
     if (!Object.keys(update).length) {
       return NextResponse.json({ error: "Tidak ada perubahan untuk disimpan." }, { status: 400 });
@@ -447,7 +449,7 @@ export async function PATCH(request: Request) {
       const vendor = user.vendorName.trim().toLowerCase();
       const region = String(user.regionScope ?? "").trim().toLowerCase();
       const allowed = ["id", "status", "activationDate", "timeSlot", "rescheduleReason"];
-      if (!vendor || !VALID_REGION_SCOPES.has(region) || current.vendorName.trim().toLowerCase() !== vendor || requestRegion(current) !== region || ["Pending", "Request Approval"].includes(current.status) || current.rescheduleApprovalStatus === "Pending PIC Approval" || current.rescheduleApprovalStatus === "Pending Vendor Approval" || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
+      if (!vendor || !VALID_REGION_SCOPES.has(region) || current.vendorName.trim().toLowerCase() !== vendor || requestRegion(current) !== region || current.status === "Pending" || current.rescheduleApprovalStatus === "Pending PIC Approval" || current.rescheduleApprovalStatus === "Pending Vendor Approval" || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
         return NextResponse.json({ error: "Vendor hanya dapat mengajukan reschedule untuk request miliknya." }, { status: 403 });
       }
     }

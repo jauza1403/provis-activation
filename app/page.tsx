@@ -96,6 +96,7 @@ type ActivationRequest = {
   switchPopPortAllocation: string;
   customerIp: string;
   buildType: string;
+  buildDetail: string;
   rfaCores: number;
   popAllocation: string;
   popId: string;
@@ -260,7 +261,6 @@ const projectPics = [
 ];
 const statuses = [
   "Idle",
-  "Request Approval",
   "On Progress",
   "Completed",
   "Reschedule",
@@ -473,6 +473,7 @@ const emptyForm = {
   switchPopPortAllocation: "",
   customerIp: "",
   buildType: "",
+  buildDetail: "",
   rfaCores: 1,
   popId: "",
   popName: "",
@@ -1218,6 +1219,7 @@ export default function Home() {
       switchPopPortAllocation: item.switchPopPortAllocation || "",
       customerIp: item.customerIp || "",
       buildType: item.buildType || "",
+      buildDetail: item.buildDetail || "",
       rfaCores: item.rfaCores,
       popId: item.popId || "",
       popName: item.popName || item.popAllocation || "",
@@ -1703,7 +1705,7 @@ export default function Home() {
                           </td>
                           <td data-label="Aksi">
                             <div className="row-actions">
-                              {currentUser?.role === "vendor_user" && !["Completed", "Pending", "Request Approval"].includes(item.status) && (
+                              {currentUser?.role === "vendor_user" && !["Completed", "Pending"].includes(item.status) && (
                                 <button type="button" className="icon-action edit" title="Ajukan reschedule" aria-label={`Ajukan reschedule ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); openReschedule(item); }}>
                                   <CalendarClock size={15} />
                                 </button>
@@ -2563,7 +2565,7 @@ function RequestDetail({
                 {request.siteId} · {request.subsId}
               </SheetDescription>
               <span className={`detail-status status-${request.status.toLowerCase().replaceAll(" ", "-")}`}>
-                {request.approvalStatus === "Waiting Approval" ? "Request Approval" : request.status}
+                {request.approvalStatus === "Waiting Approval" ? "Waiting Approval" : request.status}
               </span>
               {canEdit && (
                 <div className="detail-actions">
@@ -2633,6 +2635,7 @@ function RequestDetail({
               <DetailSection title="Perangkat & RFA">
                 <DetailItem label="Akses Media" value={request.accessMedia} />
                 <DetailItem label="Bandwidth" value={request.bandwidth || "-"} />
+                <DetailItem label="Build / Existing" value={!request.buildType ? "-" : request.buildType === "Khusus Metro" ? `Khusus Metro${request.buildDetail ? ` — ${request.buildDetail}` : ""}` : request.buildType} wide />
                 <DetailItem label="Jumlah Core" value={`${request.rfaCores} Core`} />
                 <DetailItem label="Panjang Kabel" value={request.cableLength || "-"} />
                 <DetailItem label="Type Kabel" value={request.cableType || "-"} />
@@ -3122,22 +3125,34 @@ function RequestForm({
             <Field label="Alokasi Port Switch POP">
               <input required placeholder="Port switch POP" {...input("switchPopPortAllocation")} />
             </Field>
-            <Field label="IP Customer">
-              <input required={!noIpServiceTypes.includes(form.serviceType)} placeholder="IP customer" {...input("customerIp")} />
-            </Field>
+            {!noIpServiceTypes.includes(form.serviceType) && (
+              <Field label="IP Customer">
+                <input required={!noIpServiceTypes.includes(form.serviceType)} placeholder="IP customer" {...input("customerIp")} />
+              </Field>
+            )}
             {(form.accessMedia === "METRO" || form.accessMedia === "GPON") && (
               <Field label="Build / Existing" wide>
                 <select required {...input("buildType")}>
                   <option value="" disabled>Pilih build</option>
+                  <option>Khusus Metro</option>
                   <option>Build 1:8</option>
                   <option>Build 1:4</option>
                   <option>Existing 1:4</option>
                   <option>Existing 1:8</option>
                 </select>
+                {form.buildType === "Khusus Metro" && (
+                  <div className="form-note" style={{ marginTop: 8 }}>
+                    Detail Khusus Metro:
+                    <input
+                      placeholder="Isi detail khusus metro"
+                      {...input("buildDetail")}
+                    />
+                  </div>
+                )}
               </Field>
             )}
-            <Field label="Port ODP/FAT">
-              <input required placeholder="Port ODP/FAT" {...input("odpFatPort")} />
+            <Field label="Port ODP/FAT (Opsional)">
+              <input placeholder="Port ODP/FAT (opsional)" {...input("odpFatPort")} />
             </Field>
             <Field label="POP ID">
               <input

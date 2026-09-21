@@ -33,6 +33,7 @@ export const activationRequests = sqliteTable(
     switchPopPortAllocation: text("switch_pop_port_allocation").notNull().default(""),
     customerIp: text("customer_ip").notNull().default(""),
     buildType: text("build_type").notNull().default(""),
+    buildDetail: text("build_detail").notNull().default(""),
     rfaCores: integer("rfa_cores").notNull(),
     popAllocation: text("pop_allocation").notNull(),
     popId: text("pop_id").notNull().default(""),
