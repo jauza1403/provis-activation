@@ -292,6 +292,7 @@ td select { max-width: 190px; min-height: 36px; font-size: 12px; }
 .status { font-weight: 700; }
 .status-control { display:flex; align-items:center; gap:9px; }
 .status.idle { border-color:rgba(148,163,184,.3); color:#b9c6d2; }
+.status.request-approval { border-color:rgba(96,165,250,.45); color:#93c5fd; }
 .status.completed { border-color: rgba(53, 224, 161, 0.4); color: #66edba; }
 .status.reschedule { border-color:rgba(167,139,250,.42); color:#c4b5fd; }
 .status.pending { border-color:rgba(251,191,36,.42); color:#fcd34d; }
@@ -404,6 +405,7 @@ td select { max-width: 190px; min-height: 36px; font-size: 12px; }
 .detail-description { margin-top:3px; color:#8398aa!important; font-size:13px!important; }
 .detail-status { display:inline-flex; align-self:flex-start; margin-top:12px; border:1px solid rgba(85,200,255,.25); border-radius:999px; padding:5px 10px; background:rgba(85,200,255,.08); color:#83ddff; font-size:11px; font-weight:800; }
 .detail-status.status-completed { border-color:rgba(69,221,160,.28); background:rgba(69,221,160,.08); color:#72eab7; }
+.detail-status.status-request-approval { border-color:rgba(96,165,250,.35); background:rgba(96,165,250,.1); color:#93c5fd; }
 .detail-status.status-reschedule { border-color:rgba(167,139,250,.3); background:rgba(167,139,250,.08); color:#c4b5fd; }
 .detail-status.status-pending { border-color:rgba(251,191,36,.3); background:rgba(251,191,36,.08); color:#fcd34d; }
 .detail-status.status-on-progress { border-color:rgba(255,154,84,.32); background:rgba(255,154,84,.09); color:#ffb27d; }
@@ -656,6 +658,7 @@ td > span:not(.media-badge) { color:#64748b; }
 .icon-action.delete:hover { border-color:#fecdd3; background:#fff1f2; color:#be123c; }
 .status { background:#fff; }
 .status.idle { border-color:#cbd5e1; color:#475569; }
+.status.request-approval { border-color:#bfdbfe; background:#eff6ff; color:#1d4ed8; }
 .status.on-progress { border-color:#86efac; background:#f0fdf4; color:#15803d; }
 .status.completed { border-color:#86efac; color:#15803d; }
 .status.reschedule { border-color:#c4b5fd; color:#6d28d9; }
@@ -920,6 +923,7 @@ td > span:not(.media-badge) { color:#7f8c9e; }
 .icon-action.delete:hover { border-color:#71303b; background:#2a1318; color:#fb8fa1; }
 .status { background:#0a0e14; }
 .status.idle { border-color:#3a4553; color:#aeb9c5; }
+.status.request-approval { border-color:#2563eb; background:#0b1c4d; color:#93c5fd; }
 .status.on-progress { border-color:#276244; background:#0d2119; color:#69d49f; }
 .status.completed { border-color:#276244; color:#69d49f; }
 .status.reschedule { border-color:#51417b; color:#bca8ef; }

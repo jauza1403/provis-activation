@@ -71,7 +71,7 @@ function getWibClock(date = new Date()) {
   };
 }
 
-const allowedStatus = ["Idle", "On Progress", "Completed", "Reschedule", "Pending"];
+const allowedStatus = ["Idle", "Request Approval", "On Progress", "Completed", "Reschedule", "Pending"];
 const CUTOFF_HOUR = 17;
 
 function slotStartMinutes(timeSlot: string) {
@@ -109,6 +109,7 @@ export async function GET(request: Request) {
       const reachedStart =
         row.activationDate < now.date ||
         (row.activationDate === now.date && nowMinutes >= slotStartMinutes(row.timeSlot));
+      if (row.approvalStatus === "Waiting Approval" && status !== "Completed") status = "Request Approval";
       if (row.approvalStatus !== "Waiting Approval" && !String(row.rescheduleApprovalStatus || "").startsWith("Pending") && ["Idle", "Reschedule"].includes(status) && reachedStart) status = "On Progress";
       return status === row.status ? row : { ...row, status };
     });
@@ -252,7 +253,7 @@ export async function POST(request: Request) {
       projectPic: body.projectPic.trim(),
       vendorPic: body.vendorPic.trim(),
       provisioningPic: body.provisioningPic,
-      status: "Idle",
+      status: isUrgent ? "Request Approval" : "Idle",
       completedAt: "",
       pendingReason: "",
       requestType: isUrgent ? "Urgent" : "Regular",
@@ -383,8 +384,13 @@ export async function PATCH(request: Request) {
       update.status = body.status;
       update.completedAt = body.status === "Completed" ? new Date().toISOString() : "";
     }
-    if (body.approvalStatus) update.approvalStatus = body.approvalStatus;
-    if (body.approvalStatus === "Approved") update.approvedAt = new Date().toISOString();
+    if (body.approvalStatus === "Approved") {
+      update.approvalStatus = "Approved";
+      update.approvedAt = new Date().toISOString();
+      update.status = "On Progress";
+    } else if (body.approvalStatus) {
+      update.approvalStatus = body.approvalStatus;
+    }
     if (typeof body.pendingReason === "string") update.pendingReason = body.pendingReason.trim();
     if (body.provisioningPic) update.provisioningPic = body.provisioningPic;
     if (typeof body.notes === "string") update.notes = body.notes.trim();
@@ -441,7 +447,7 @@ export async function PATCH(request: Request) {
       const vendor = user.vendorName.trim().toLowerCase();
       const region = String(user.regionScope ?? "").trim().toLowerCase();
       const allowed = ["id", "status", "activationDate", "timeSlot", "rescheduleReason"];
-      if (!vendor || !VALID_REGION_SCOPES.has(region) || current.vendorName.trim().toLowerCase() !== vendor || requestRegion(current) !== region || current.status === "Pending" || current.rescheduleApprovalStatus === "Pending PIC Approval" || current.rescheduleApprovalStatus === "Pending Vendor Approval" || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
+      if (!vendor || !VALID_REGION_SCOPES.has(region) || current.vendorName.trim().toLowerCase() !== vendor || requestRegion(current) !== region || ["Pending", "Request Approval"].includes(current.status) || current.rescheduleApprovalStatus === "Pending PIC Approval" || current.rescheduleApprovalStatus === "Pending Vendor Approval" || body.status !== "Reschedule" || Object.keys(body).some((key) => !allowed.includes(key)) || !String(body.rescheduleReason ?? "").trim()) {
         return NextResponse.json({ error: "Vendor hanya dapat mengajukan reschedule untuk request miliknya." }, { status: 403 });
       }
     }

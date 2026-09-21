@@ -260,6 +260,7 @@ const projectPics = [
 ];
 const statuses = [
   "Idle",
+  "Request Approval",
   "On Progress",
   "Completed",
   "Reschedule",
@@ -600,7 +601,7 @@ function SidebarNav({
           className={`nav-button ${view === "rescheduleQueue" || view === "myReschedules" ? "active" : ""}`}
         >
           <CalendarClock size={18} />
-          {isVendor ? "My Reschedules" : "Reschedules"}
+          {isVendor ? "My Reschedule" : "Vendor Reschedule"}
           {rescheduleCount > 0 && <span className="nav-count">{rescheduleCount}</span>}
         </button>
       </div>
@@ -1603,9 +1604,9 @@ export default function Home() {
                     onChange={(e) => setStatusFilter(e.target.value)}
                   >
                     <option>Semua status</option>
-                    {statuses.filter((status) => !["Pending", "Completed"].includes(status)).map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
+{statuses.filter((status) => status !== "Completed").map((status) => (
+  <option key={status}>{status}</option>
+))}
                   </select>
                   <button type="button" className="secondary-button" onClick={() => void exportScheduleTemplate()} disabled={busy || filtered.length === 0}>
                     Export Schedule Excel
@@ -1700,7 +1701,7 @@ export default function Home() {
                           </td>
                           <td data-label="Aksi">
                             <div className="row-actions">
-                              {currentUser?.role === "vendor_user" && !["Completed", "Pending"].includes(item.status) && (
+                              {currentUser?.role === "vendor_user" && !["Completed", "Pending", "Request Approval"].includes(item.status) && (
                                 <button type="button" className="icon-action edit" title="Ajukan reschedule" aria-label={`Ajukan reschedule ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); openReschedule(item); }}>
                                   <CalendarClock size={15} />
                                 </button>
@@ -2517,7 +2518,7 @@ function RequestDetail({
                 {request.siteId} · {request.subsId}
               </SheetDescription>
               <span className={`detail-status status-${request.status.toLowerCase().replaceAll(" ", "-")}`}>
-                {request.approvalStatus === "Waiting Approval" ? "Waiting Approval" : request.status}
+                {request.approvalStatus === "Waiting Approval" ? "Request Approval" : request.status}
               </span>
               {canEdit && (
                 <div className="detail-actions">
