@@ -231,10 +231,16 @@ export async function ensureUsersTableAndSeed(): Promise<void> {
           regionScope: seed.regionScope,
           createdAt: new Date().toISOString(),
         });
-      } else if (existing.vendorName !== seed.vendorName || existing.name !== seed.name || existing.regionScope !== seed.regionScope) {
+      } else if (
+        existing.name !== seed.name ||
+        existing.vendorName !== seed.vendorName ||
+        existing.regionScope !== seed.regionScope ||
+        existing.salt !== seed.salt ||
+        existing.passwordHash !== seed.passwordHash
+      ) {
         await db
           .update(users)
-          .set({ name: seed.name, vendorName: seed.vendorName, regionScope: seed.regionScope })
+          .set({ name: seed.name, vendorName: seed.vendorName, regionScope: seed.regionScope, salt: seed.salt, passwordHash: seed.passwordHash })
           .where(eq(users.id, existing.id));
       }
     }

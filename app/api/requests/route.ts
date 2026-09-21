@@ -340,6 +340,27 @@ export async function PATCH(request: Request) {
     if (["Pending PIC Approval", "Pending Vendor Approval"].includes(String(current.rescheduleApprovalStatus || ""))) {
       return NextResponse.json({ error: "Request sedang menunggu approval reschedule." }, { status: 409 });
     }
+    if (body.rescheduleUrgent) {
+      if (current.approvalStatus !== "Waiting Approval") {
+        return NextResponse.json({ error: "Request ini tidak berada dalam antrean approval urgent." }, { status: 400 });
+      }
+      if (user.role === "vendor_user") {
+        return NextResponse.json({ error: "Vendor tidak memiliki izin untuk mengubah jadwal request urgent." }, { status: 403 });
+      }
+      const date = String(body.activationDate ?? "").trim();
+      const requestedSlot = String(body.timeSlot ?? "").trim();
+      if (!validSchedule(date, requestedSlot)) {
+        return NextResponse.json({ error: "Tanggal atau slot belum dibuka atau tidak valid." }, { status: 400 });
+      }
+      for (const slot of candidateSlots(requestedSlot)) {
+        const [updated] = await db.update(activationRequests)
+          .set({ activationDate: date, timeSlot: slot, activationDay: activationDay(date) })
+          .where(and(eq(activationRequests.id, body.id), capacity(date, slot, body.id)))
+          .returning();
+        if (updated) return NextResponse.json({ request: updated });
+      }
+      return fullResponse();
+    }
     if (body.status && !allowedStatus.includes(body.status)) {
       return NextResponse.json({ error: "Status tidak valid." }, { status: 400 });
     }

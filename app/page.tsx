@@ -13,6 +13,7 @@ import {
   CalendarDays,
   CalendarClock,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
   CircleAlert,
@@ -21,6 +22,7 @@ import {
   Lock,
   LogOut,
   Mail,
+  Menu,
   Pencil,
   Plus,
   CirclePause,
@@ -58,6 +60,7 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -506,6 +509,173 @@ declare global {
 
 const CUTOFF_HOUR = 17;
 
+function SidebarNav({
+  currentUser,
+  view,
+  pastCutoff,
+  urgentCount,
+  pendingCount,
+  rescheduleCount,
+  completedCount,
+  onDashboard,
+  onNewRequest,
+  onUrgentRequest,
+  onUrgent,
+  onPending,
+  onReschedules,
+  onCompleted,
+}: {
+  currentUser: CurrentUser | null;
+  view: string;
+  pastCutoff: boolean;
+  urgentCount: number;
+  pendingCount: number;
+  rescheduleCount: number;
+  completedCount: number;
+  onDashboard: () => void;
+  onNewRequest: () => void;
+  onUrgentRequest: () => void;
+  onUrgent: () => void;
+  onPending: () => void;
+  onReschedules: () => void;
+  onCompleted: () => void;
+}) {
+  const isVendor = currentUser?.role === "vendor_user";
+  return (
+    <>
+      <div className="sidebar-group">
+        <div className="sidebar-group-label">WORKSPACE</div>
+        <button
+          type="button"
+          onClick={onDashboard}
+          className={`nav-button ${view === "dashboard" ? "active" : ""}`}
+        >
+          <LayoutDashboard size={18} />
+          {isVendor ? "Dashboard Saya" : "Dashboard"}
+        </button>
+        <button
+          type="button"
+          onClick={onNewRequest}
+          disabled={pastCutoff}
+          title={pastCutoff ? "Pengajuan reguler tutup pukul 17:00 WIB" : undefined}
+          className={`nav-button ${view === "form" ? "active" : ""} ${pastCutoff ? "disabled" : ""}`}
+        >
+          {pastCutoff ? <Lock size={18} /> : <Plus size={18} />}
+          Request Baru
+        </button>
+        <button
+          type="button"
+          onClick={onUrgentRequest}
+          className={`nav-button urgent-nav ${view === "urgentForm" ? "active" : ""}`}
+        >
+          <Flame size={18} />
+          Request Urgent
+        </button>
+      </div>
+      <div className="sidebar-group">
+        <div className="sidebar-group-label">FOLLOW-UP</div>
+        {!isVendor && (
+          <button
+            type="button"
+            onClick={onUrgent}
+            className={`nav-button ${view === "urgent" ? "active" : ""}`}
+          >
+            <MessageCircle size={18} />
+            Approval Urgent
+            {urgentCount > 0 && <span className="nav-count urgent-count">{urgentCount}</span>}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onPending}
+          className={`nav-button ${view === "pending" ? "active" : ""}`}
+        >
+          <CirclePause size={18} />
+          {isVendor ? "PIC Updates" : "Pending / On Hold"}
+          {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}
+        </button>
+        <button
+          type="button"
+          onClick={onReschedules}
+          className={`nav-button ${view === "rescheduleQueue" || view === "myReschedules" ? "active" : ""}`}
+        >
+          <CalendarClock size={18} />
+          {isVendor ? "My Reschedules" : "Reschedules"}
+          {rescheduleCount > 0 && <span className="nav-count">{rescheduleCount}</span>}
+        </button>
+      </div>
+      {!isVendor && (
+        <div className="sidebar-group">
+          <div className="sidebar-group-label">HISTORY</div>
+          <button
+            type="button"
+            onClick={onCompleted}
+            className={`nav-button ${view === "completed" ? "active" : ""}`}
+          >
+            <CheckCircle2 size={18} />
+            Selesai
+            {completedCount > 0 && <span className="nav-count completed-count">{completedCount}</span>}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+const PAGE_SIZE = 10;
+
+function paginate<T>(items: T[], page: number): { page: number; totalPages: number; items: T[] } {
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  return {
+    page: safePage,
+    totalPages,
+    items: items.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+  };
+}
+
+function PaginationBar({
+  page,
+  totalPages,
+  totalItems,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalItems <= PAGE_SIZE) return null;
+  const from = (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, totalItems);
+  return (
+    <div className="pagination-bar">
+      <span className="pagination-info">
+        Menampilkan {from}–{to} dari {totalItems} data
+      </span>
+      <div className="pagination-controls">
+        <button
+          type="button"
+          className="pagination-button"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+        >
+          <ChevronLeft size={16} /> Sebelumnya
+        </button>
+        <span className="pagination-current">Halaman {page} / {totalPages}</span>
+        <button
+          type="button"
+          className="pagination-button"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+        >
+          Berikutnya <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -530,23 +700,29 @@ export default function Home() {
   const [deleteTarget, setDeleteTarget] = useState<ActivationRequest | null>(null);
   const [deleteCompletedAllOpen, setDeleteCompletedAllOpen] = useState(false);
   const [rescheduleTarget, setRescheduleTarget] = useState<ActivationRequest | null>(null);
+  const [rescheduleCalendarOpen, setRescheduleCalendarOpen] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleSlot, setRescheduleSlot] = useState(slots[0]);
   const [rescheduleReason, setRescheduleReason] = useState("");
-  const [rescheduleMode, setRescheduleMode] = useState<"pic" | "vendor">("pic");
+  const [rescheduleMode, setRescheduleMode] = useState<"pic" | "vendor" | "urgent">("pic");
   const [rescheduleApprovalTarget, setRescheduleApprovalTarget] = useState<ActivationRequest | null>(null);
+  const [rescheduleApprovalCalendarOpen, setRescheduleApprovalCalendarOpen] = useState(false);
   const [rescheduleApprovalDate, setRescheduleApprovalDate] = useState("");
   const [rescheduleApprovalSlot, setRescheduleApprovalSlot] = useState(slots[0]);
   const [rescheduleApprovalReason, setRescheduleApprovalReason] = useState("");
   const [rescheduleApprovalDecision, setRescheduleApprovalDecision] = useState<"Approved" | "Rejected">("Approved");
   const [switchEmailTarget, setSwitchEmailTarget] = useState<ActivationRequest | null>(null);
   const [pendingTarget, setPendingTarget] = useState<ActivationRequest | null>(null);
+  const [pendingCalendarOpen, setPendingCalendarOpen] = useState(false);
   const [pendingDate, setPendingDate] = useState("");
   const [pendingSlot, setPendingSlot] = useState(slots[0]);
   const [pendingReason, setPendingReason] = useState("");
   const [requestTypeDialog, setRequestTypeDialog] = useState(false);
   const [completedDateFilter, setCompletedDateFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [headerHidden, setHeaderHidden] = useState(false);
+  const [tablePage, setTablePage] = useState(1);
 
   // 17:00 WIB cutoff — refreshed every minute
   const [pastCutoff, setPastCutoff] = useState(() => getWibClock().hour >= CUTOFF_HOUR);
@@ -554,6 +730,20 @@ export default function Home() {
     const tick = () => setPastCutoff(getWibClock().hour >= CUTOFF_HOUR);
     const id = window.setInterval(tick, 60_000);
     return () => window.clearInterval(id);
+  }, []);
+
+  // Hide header saat scroll ke bawah, tampilkan kembali saat scroll ke atas
+  useEffect(() => {
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      const delta = y - lastY;
+      if (y > 160 && delta > 10) setHeaderHidden(true);
+      else if (delta < -10 || y <= 160) setHeaderHidden(false);
+      lastY = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   async function load() {
@@ -734,7 +924,6 @@ export default function Home() {
   const filtered = useMemo(
     () =>
       requests.filter((item) => {
-        if (["Pending", "Completed"].includes(item.status) || item.approvalStatus === "Waiting Approval") return false;
         if (overdueOnly && !(item.activationDate < today && item.status !== "Completed")) return false;
         const haystack =
           `${item.customerName} ${item.siteId} ${item.subsId} ${item.woNumber} ${item.vendorName} ${item.area} ${item.provisioningPic}`.toLowerCase();
@@ -751,6 +940,17 @@ export default function Home() {
       }),
     [requests, query, statusFilter, overdueOnly, today],
   );
+
+  // Reset & jaga halaman tetap valid saat filter / data berubah
+  const [prevTableFilter, setPrevTableFilter] = useState({ query, statusFilter, overdueOnly });
+  if (prevTableFilter.query !== query || prevTableFilter.statusFilter !== statusFilter || prevTableFilter.overdueOnly !== overdueOnly) {
+    setPrevTableFilter({ query, statusFilter, overdueOnly });
+    setTablePage(1);
+  }
+  const tableMaxPage = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  if (tablePage > tableMaxPage) setTablePage(tableMaxPage);
+
+  const tableInfo = paginate(filtered, tablePage);
 
   async function exportScheduleTemplate() {
     try {
@@ -784,9 +984,10 @@ export default function Home() {
 
   function changeStatus(item: ActivationRequest, status: string) {
     if (status === "Pending") {
+      const picked = usableSchedule(item.activationDate, item.timeSlot);
       setPendingTarget(item);
-      setPendingDate(item.activationDate);
-      setPendingSlot(item.timeSlot);
+      setPendingDate(picked.date);
+      setPendingSlot(picked.slot);
       setPendingReason(item.pendingReason || "");
       return;
     }
@@ -797,18 +998,37 @@ export default function Home() {
     void updateRequest(item.id, "status", status);
   }
 
+  function usableSchedule(date: string, slot: string) {
+    const anyOpenOnDate = date && slots.some((candidate) => isSlotOpen(candidate, date, serverNow));
+    const effectiveDate = anyOpenOnDate ? date : serverNow.date;
+    const preferred = slot && isSlotOpen(slot, effectiveDate, serverNow) ? slot : "";
+    const effectiveSlot = preferred || slots.find((candidate) => isSlotOpen(candidate, effectiveDate, serverNow)) || slots[0];
+    return { date: effectiveDate, slot: effectiveSlot };
+  }
+
   function openReschedule(item: ActivationRequest, mode: "pic" | "vendor" = currentUser?.role === "vendor_user" ? "vendor" : "pic") {
+    const picked = usableSchedule(mode === "vendor" ? item.vendorRescheduleDate || item.activationDate : item.picRescheduleDate || item.activationDate, mode === "vendor" ? item.vendorRescheduleTimeSlot || item.timeSlot : item.picRescheduleTimeSlot || item.timeSlot);
     setRescheduleTarget(item);
-    setRescheduleDate(mode === "vendor" ? item.vendorRescheduleDate || item.activationDate : item.picRescheduleDate || item.activationDate);
-    setRescheduleSlot(mode === "vendor" ? item.vendorRescheduleTimeSlot || item.timeSlot : item.picRescheduleTimeSlot || item.timeSlot);
+    setRescheduleDate(picked.date);
+    setRescheduleSlot(picked.slot);
     setRescheduleReason(mode === "vendor" ? item.rescheduleReason || "" : item.picRescheduleReason || "");
     setRescheduleMode(mode);
   }
 
+  function openUrgentReschedule(item: ActivationRequest) {
+    const picked = usableSchedule(item.activationDate, item.timeSlot);
+    setRescheduleTarget(item);
+    setRescheduleDate(picked.date);
+    setRescheduleSlot(picked.slot);
+    setRescheduleReason("");
+    setRescheduleMode("urgent");
+  }
+
   function openRescheduleApproval(item: ActivationRequest, decision: "Approved" | "Rejected" = "Approved") {
+    const picked = usableSchedule(item.rescheduleRequestedBy === "vendor" ? item.vendorRescheduleDate : item.picRescheduleDate, item.rescheduleRequestedBy === "vendor" ? item.vendorRescheduleTimeSlot : item.picRescheduleTimeSlot);
     setRescheduleApprovalTarget(item);
-    setRescheduleApprovalDate(item.rescheduleRequestedBy === "vendor" ? item.vendorRescheduleDate : item.picRescheduleDate);
-    setRescheduleApprovalSlot(item.rescheduleRequestedBy === "vendor" ? item.vendorRescheduleTimeSlot : item.picRescheduleTimeSlot);
+    setRescheduleApprovalDate(picked.date);
+    setRescheduleApprovalSlot(picked.slot);
     setRescheduleApprovalReason("");
     setRescheduleApprovalDecision(decision);
   }
@@ -873,19 +1093,28 @@ export default function Home() {
 
   async function saveReschedule() {
     const vendorReschedule = rescheduleMode === "vendor";
-    if (!rescheduleTarget || !rescheduleDate || !rescheduleSlot || !rescheduleReason.trim()) return;
+    const urgentReschedule = rescheduleMode === "urgent";
+    if (!rescheduleTarget || !rescheduleDate || !rescheduleSlot) return;
+    if (!urgentReschedule && !rescheduleReason.trim()) return;
     setBusy(true);
     try {
       const response = await fetch("/api/requests", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          id: rescheduleTarget.id,
-          status: vendorReschedule ? "Reschedule" : "Pending",
-          activationDate: rescheduleDate,
-          timeSlot: rescheduleSlot,
-          ...(vendorReschedule ? { rescheduleReason: rescheduleReason.trim() } : { picRescheduleReason: rescheduleReason.trim() }),
-        }),
+        body: JSON.stringify(urgentReschedule
+          ? {
+              id: rescheduleTarget.id,
+              rescheduleUrgent: true,
+              activationDate: rescheduleDate,
+              timeSlot: rescheduleSlot,
+            }
+          : {
+              id: rescheduleTarget.id,
+              status: vendorReschedule ? "Reschedule" : "Pending",
+              activationDate: rescheduleDate,
+              timeSlot: rescheduleSlot,
+              ...(vendorReschedule ? { rescheduleReason: rescheduleReason.trim() } : { picRescheduleReason: rescheduleReason.trim() }),
+            }),
       });
       const data = (await response.json()) as MutationResponse;
       if (!response.ok) throw new Error(data.error);
@@ -895,7 +1124,9 @@ export default function Home() {
       setSelectedRequest((current) => current?.id === rescheduleTarget.id ? data.request : current);
       setRescheduleTarget(null);
       setRescheduleReason("");
-      setMessage(vendorReschedule ? "Vendor Reschedule berhasil diajukan untuk approval PIC." : "PIC Reschedule berhasil disimpan dan diinformasikan ke vendor.", "success");
+      setMessage(urgentReschedule
+        ? "Jadwal request urgent berhasil diubah."
+        : vendorReschedule ? "Vendor Reschedule berhasil diajukan untuk approval PIC." : "PIC Reschedule berhasil disimpan dan diinformasikan ke vendor.", "success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Jadwal gagal diubah.");
     } finally {
@@ -1129,6 +1360,20 @@ export default function Home() {
     },
   ];
 
+  const hamburgerNoticeCount =
+    (currentUser?.role !== "vendor_user" ? urgentRequests.length : 0)
+    + (currentUser?.role === "vendor_user" ? picUpdatesRequests.length : onHoldRequests.length)
+    + (currentUser?.role === "vendor_user" ? myRescheduleRequests.length : vendorRescheduleRequests.length);
+
+  const closeMobileNav = () => setMobileNavOpen(false);
+  const goDashboard = () => { closeMobileNav(); setView("dashboard"); setOverdueOnly(false); setEditingId(null); setForm(emptyForm); };
+  const goNewRequest = () => { closeMobileNav(); openNewRequest(); };
+  const goUrgentRequest = () => { closeMobileNav(); openUrgentRequest(); };
+  const goUrgent = () => { closeMobileNav(); setView("urgent"); setEditingId(null); setSelectedRequest(null); };
+  const goPending = () => { closeMobileNav(); setView("pending"); setEditingId(null); setSelectedRequest(null); };
+  const goReschedules = () => { closeMobileNav(); setView(currentUser?.role === "vendor_user" ? "myReschedules" : "rescheduleQueue"); setEditingId(null); setSelectedRequest(null); };
+  const goCompleted = () => { closeMobileNav(); setView("completed"); setEditingId(null); setSelectedRequest(null); };
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400">
@@ -1140,7 +1385,7 @@ export default function Home() {
 
   return (
     <main className="portal-shell min-h-screen text-slate-100">
-      <header className="portal-header px-5 py-4 lg:px-10">
+      <header className={`portal-header px-5 py-4 lg:px-10 ${headerHidden ? "portal-header-hidden" : ""}`}>
         <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-5">
           <div className="brand-lockup">
             <span className="brand-logo-shell">
@@ -1198,98 +1443,46 @@ export default function Home() {
                   type="button"
                   onClick={handleLogout}
                   title="Keluar / Logout"
-                  className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/30 text-slate-400 border border-slate-800 text-xs font-medium transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150 active:scale-[.96] cursor-pointer"
+                  className="hidden md:flex items-center gap-1.5 py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/30 text-slate-400 border border-slate-800 text-xs font-medium transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150 active:scale-[.96] cursor-pointer"
                 >
                   <LogOut size={15} />
                   <span className="hidden md:inline">Keluar</span>
                 </button>
               </div>
             )}
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Buka menu navigasi"
+              className="hamburger-button md:hidden"
+            >
+              <Menu size={20} />
+              {hamburgerNoticeCount > 0 && (
+                <span className="hamburger-notice">{hamburgerNoticeCount}</span>
+              )}
+            </button>
           </div>
         </div>
       </header>
 
       <div className="portal-content-grid mx-auto grid max-w-[1500px] gap-7 px-4 py-7 lg:grid-cols-[236px_minmax(0,1fr)] lg:px-10">
         <aside className="portal-sidebar flex gap-2 lg:flex-col">
-          <div className="sidebar-group">
-            <div className="sidebar-group-label">WORKSPACE</div>
-            <button
-              onClick={() => { setView("dashboard"); setOverdueOnly(false); setEditingId(null); setForm(emptyForm); }}
-              className={`nav-button ${view === "dashboard" ? "active" : ""}`}
-            >
-              <LayoutDashboard size={18} />
-              {currentUser?.role === "vendor_user" ? "Dashboard Saya" : "Dashboard"}
-            </button>
-            <button
-              onClick={openNewRequest}
-              disabled={pastCutoff}
-              title={pastCutoff ? "Pengajuan reguler tutup pukul 17:00 WIB" : undefined}
-              className={`nav-button ${view === "form" ? "active" : ""} ${pastCutoff ? "disabled" : ""}`}
-            >
-              {pastCutoff ? <Lock size={18} /> : <Plus size={18} />}
-              Request Baru
-            </button>
-            <button
-              onClick={openUrgentRequest}
-              className={`nav-button urgent-nav ${view === "urgentForm" ? "active" : ""}`}
-            >
-              <Flame size={18} />
-              Request Urgent
-            </button>
-          </div>
-          <div className="sidebar-group">
-            <div className="sidebar-group-label">FOLLOW-UP</div>
-            {currentUser?.role !== "vendor_user" && (
-              <button
-                onClick={() => { setView("urgent"); setEditingId(null); setSelectedRequest(null); }}
-                className={`nav-button ${view === "urgent" ? "active" : ""}`}
-              >
-                <MessageCircle size={18} />
-                Approval Urgent
-                {urgentRequests.length > 0 && <span className="nav-count urgent-count">{urgentRequests.length}</span>}
-              </button>
-            )}
-            <button
-              onClick={() => { setView("pending"); setEditingId(null); setSelectedRequest(null); }}
-              className={`nav-button ${view === "pending" ? "active" : ""}`}
-            >
-              <CirclePause size={18} />
-              {currentUser?.role === "vendor_user" ? "PIC Updates" : "Pending / On Hold"}
-              {(currentUser?.role === "vendor_user" ? picUpdatesRequests.length : onHoldRequests.length) > 0 && <span className="nav-count">{currentUser?.role === "vendor_user" ? picUpdatesRequests.length : onHoldRequests.length}</span>}
-            </button>
-            {currentUser?.role !== "vendor_user" ? (
-              <button
-                onClick={() => { setView("rescheduleQueue"); setEditingId(null); setSelectedRequest(null); }}
-                className={`nav-button ${view === "rescheduleQueue" ? "active" : ""}`}
-              >
-                <CalendarClock size={18} />
-                Reschedules
-                {vendorRescheduleRequests.length > 0 && <span className="nav-count">{vendorRescheduleRequests.length}</span>}
-              </button>
-            ) : (
-              <button
-                onClick={() => { setView("myReschedules"); setEditingId(null); setSelectedRequest(null); }}
-                className={`nav-button ${view === "myReschedules" ? "active" : ""}`}
-              >
-                <CalendarClock size={18} />
-                My Reschedules
-                {myRescheduleRequests.length > 0 && <span className="nav-count">{myRescheduleRequests.length}</span>}
-              </button>
-            )}
-          </div>
-          {currentUser?.role !== "vendor_user" && (
-            <div className="sidebar-group">
-              <div className="sidebar-group-label">HISTORY</div>
-              <button
-                onClick={() => { setView("completed"); setEditingId(null); setSelectedRequest(null); }}
-                className={`nav-button ${view === "completed" ? "active" : ""}`}
-              >
-                <CheckCircle2 size={18} />
-                Selesai
-                {completedRequests.length > 0 && <span className="nav-count completed-count">{completedRequests.length}</span>}
-              </button>
-            </div>
-          )}
+          <SidebarNav
+            currentUser={currentUser}
+            view={view}
+            pastCutoff={pastCutoff}
+            urgentCount={urgentRequests.length}
+            pendingCount={currentUser?.role === "vendor_user" ? picUpdatesRequests.length : onHoldRequests.length}
+            rescheduleCount={currentUser?.role === "vendor_user" ? myRescheduleRequests.length : vendorRescheduleRequests.length}
+            completedCount={completedRequests.length}
+            onDashboard={goDashboard}
+            onNewRequest={goNewRequest}
+            onUrgentRequest={goUrgentRequest}
+            onUrgent={goUrgent}
+            onPending={goPending}
+            onReschedules={goReschedules}
+            onCompleted={goCompleted}
+          />
           <div className={`deadline-note mt-auto hidden lg:block ${pastCutoff ? "cutoff-active" : ""}`}>
             <span className="deadline-icon">{pastCutoff ? <ShieldAlert size={18} /> : <Clock3 size={18} />}</span>
             <b>{pastCutoff ? "Pengajuan reguler tutup" : "Pengajuan dibuka"}</b>
@@ -1433,7 +1626,7 @@ export default function Home() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((item) => (
+                      {tableInfo.items.map((item) => (
                         <tr key={item.id}>
                           <td data-label="Customer">
                             <button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={() => setSelectedRequest(item)}>
@@ -1559,6 +1752,12 @@ export default function Home() {
                     <p>Request yang baru dikirim akan tampil di sini.</p>
                   </div>
                 )}
+                <PaginationBar
+                  page={tableInfo.page}
+                  totalPages={tableInfo.totalPages}
+                  totalItems={filtered.length}
+                  onPageChange={setTablePage}
+                />
               </div>
             </>
           ) : view === "form" || view === "urgentForm" ? (
@@ -1594,7 +1793,7 @@ export default function Home() {
               requests={urgentRequests}
               onOpen={setSelectedRequest}
               onApprove={approveUrgent}
-              onReschedule={openReschedule}
+              onReschedule={openUrgentReschedule}
               busy={busy}
               canApprove={currentUser?.role === "superuser"}
             />
@@ -1637,6 +1836,40 @@ export default function Home() {
           )}
         </section>
       </div>
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="mobile-nav-sheet" showCloseButton>
+          <SheetHeader>
+            <SheetTitle className="text-base text-slate-100">Menu Navigasi</SheetTitle>
+            <SheetDescription className="text-xs">
+              {currentUser?.name} · {currentUser?.role}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="px-4">
+            <SidebarNav
+              currentUser={currentUser}
+              view={view}
+              pastCutoff={pastCutoff}
+              urgentCount={urgentRequests.length}
+              pendingCount={currentUser?.role === "vendor_user" ? picUpdatesRequests.length : onHoldRequests.length}
+              rescheduleCount={currentUser?.role === "vendor_user" ? myRescheduleRequests.length : vendorRescheduleRequests.length}
+              completedCount={completedRequests.length}
+              onDashboard={goDashboard}
+              onNewRequest={goNewRequest}
+              onUrgentRequest={goUrgentRequest}
+              onUrgent={goUrgent}
+              onPending={goPending}
+              onReschedules={goReschedules}
+              onCompleted={goCompleted}
+            />
+          </div>
+          <SheetFooter>
+            <button type="button" onClick={handleLogout} className="mobile-nav-sheet-logout">
+              <LogOut size={17} />
+              Keluar
+            </button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
       <RequestDetail
         request={selectedRequest}
         onClose={() => setSelectedRequest(null)}
@@ -1772,7 +2005,29 @@ export default function Home() {
           </DialogHeader>
           <label className="reschedule-field">
             <span>Tanggal Reschedule</span>
-            <input type="date" required={rescheduleApprovalDecision === "Approved"} min={serverNow.date} value={rescheduleApprovalDate} onChange={(event) => setRescheduleApprovalDate(event.target.value)} />
+            <Popover open={rescheduleApprovalCalendarOpen} onOpenChange={setRescheduleApprovalCalendarOpen}>
+              <PopoverTrigger asChild>
+                <button type="button" className="activation-date-trigger" aria-label="Pilih tanggal reschedule">
+                  <span>{rescheduleApprovalDate ? formatActivationDate(rescheduleApprovalDate) : "Pilih tanggal reschedule"}</span>
+                  <CalendarDays size={19} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="activation-calendar-popover w-auto p-0" align="start">
+                <Calendar
+                  className="activation-calendar"
+                  mode="single"
+                  disabled={{ before: new Date(`${serverNow.date}T00:00:00`) }}
+                  selected={rescheduleApprovalDate ? new Date(rescheduleApprovalDate + "T00:00:00") : undefined}
+                  onSelect={(date) => {
+                    if (!date) return;
+                    const value = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+                    setRescheduleApprovalDate(value);
+                    if (!isSlotOpen(rescheduleApprovalSlot, value, serverNow)) setRescheduleApprovalSlot(slots.find((slot) => isSlotOpen(slot, value, serverNow)) ?? slots[0]);
+                    setRescheduleApprovalCalendarOpen(false);
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
           </label>
           <label className="reschedule-field">
             <span>Time Reschedule</span>
@@ -1795,25 +2050,39 @@ export default function Home() {
       <Dialog open={Boolean(rescheduleTarget)} onOpenChange={(open) => !open && setRescheduleTarget(null)}>
         <DialogContent className="reschedule-dialog">
           <DialogHeader>
-            <DialogTitle>{rescheduleMode === "vendor" ? "Vendor Reschedule" : "PIC Reschedule"}</DialogTitle>
+            <DialogTitle>{rescheduleMode === "vendor" ? "Vendor Reschedule" : rescheduleMode === "urgent" ? "Ubah Jadwal Urgent" : "PIC Reschedule"}</DialogTitle>
             <DialogDescription>
-              Tentukan tanggal aktivasi baru untuk {rescheduleTarget?.customerName || rescheduleTarget?.siteId}.
-              {rescheduleMode === "vendor" ? "Ajukan perubahan jadwal karena kendala vendor." : "Ubah jadwal langsung karena kendala internal PIC Provisioning."}
+              {rescheduleMode === "urgent"
+                ? "Tentukan tanggal aktivasi baru untuk request urgent yang masih menunggu approval."
+                : `Tentukan tanggal aktivasi baru untuk ${rescheduleTarget?.customerName || rescheduleTarget?.siteId}.`}
+              {rescheduleMode === "vendor" ? "Ajukan perubahan jadwal karena kendala vendor." : rescheduleMode === "pic" ? "Ubah jadwal langsung karena kendala internal PIC Provisioning." : ""}
             </DialogDescription>
           </DialogHeader>
           <label className="reschedule-field">
             <span>Tanggal Aktivasi Baru</span>
-            <input
-              type="date"
-              required
-              min={serverNow.date}
-              value={rescheduleDate}
-              onChange={(event) => {
-                const value = event.target.value;
-                setRescheduleDate(value);
-                if (!isSlotOpen(rescheduleSlot, value, serverNow)) setRescheduleSlot(slots.find((slot) => isSlotOpen(slot, value, serverNow)) ?? slots[0]);
-              }}
-            />
+            <Popover open={rescheduleCalendarOpen} onOpenChange={setRescheduleCalendarOpen}>
+              <PopoverTrigger asChild>
+                <button type="button" className="activation-date-trigger" aria-label="Pilih tanggal aktivasi baru">
+                  <span>{rescheduleDate ? formatActivationDate(rescheduleDate) : "Pilih tanggal aktivasi baru"}</span>
+                  <CalendarDays size={19} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="activation-calendar-popover w-auto p-0" align="start">
+                <Calendar
+                  className="activation-calendar"
+                  mode="single"
+                  disabled={{ before: new Date(`${serverNow.date}T00:00:00`) }}
+                  selected={rescheduleDate ? new Date(rescheduleDate + "T00:00:00") : undefined}
+                  onSelect={(date) => {
+                    if (!date) return;
+                    const value = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+                    setRescheduleDate(value);
+                    if (!isSlotOpen(rescheduleSlot, value, serverNow)) setRescheduleSlot(slots.find((slot) => isSlotOpen(slot, value, serverNow)) ?? slots[0]);
+                    setRescheduleCalendarOpen(false);
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
           </label>
           <label className="reschedule-field">
             <span>Time Aktivasi Baru</span>
@@ -1821,15 +2090,17 @@ export default function Home() {
               {slots.map((slot) => <option key={slot} disabled={!isSlotOpen(slot, rescheduleDate, serverNow)}>{slot}</option>)}
             </select>
           </label>
-          <label className="reschedule-field">
-            <span>Reason</span>
-            <textarea rows={4} required placeholder={rescheduleMode === "vendor" ? "Jelaskan kendala dari sisi vendor" : "Contoh: device belum siap atau konflik jadwal PIC"} value={rescheduleReason} onChange={(event) => setRescheduleReason(event.target.value)} />
-          </label>
+          {rescheduleMode !== "urgent" && (
+            <label className="reschedule-field">
+              <span>Reason</span>
+              <textarea rows={4} required placeholder={rescheduleMode === "vendor" ? "Jelaskan kendala dari sisi vendor" : "Contoh: device belum siap atau konflik jadwal PIC"} value={rescheduleReason} onChange={(event) => setRescheduleReason(event.target.value)} />
+            </label>
+          )}
           <DialogFooter>
             <button type="button" className="secondary-button" disabled={busy} onClick={() => setRescheduleTarget(null)}>
               Batal
             </button>
-            <button type="button" className="primary-button" disabled={busy || !rescheduleDate || !rescheduleSlot || !rescheduleReason.trim()} onClick={() => void saveReschedule()}>
+            <button type="button" className="primary-button" disabled={busy || !rescheduleDate || !rescheduleSlot || (rescheduleMode !== "urgent" && !rescheduleReason.trim())} onClick={() => void saveReschedule()}>
               {busy ? "Menyimpan…" : "Simpan Jadwal Baru"}
             </button>
           </DialogFooter>
@@ -1845,11 +2116,29 @@ export default function Home() {
           </DialogHeader>
           <label className="reschedule-field">
             <span>Usulan Tanggal Aktivasi</span>
-            <input type="date" required min={serverNow.date} value={pendingDate} onChange={(event) => {
-              const value = event.target.value;
-              setPendingDate(value);
-              if (!isSlotOpen(pendingSlot, value, serverNow)) setPendingSlot(slots.find((slot) => isSlotOpen(slot, value, serverNow)) ?? slots[0]);
-            }} />
+            <Popover open={pendingCalendarOpen} onOpenChange={setPendingCalendarOpen}>
+              <PopoverTrigger asChild>
+                <button type="button" className="activation-date-trigger" aria-label="Pilih usulan tanggal aktivasi">
+                  <span>{pendingDate ? formatActivationDate(pendingDate) : "Pilih usulan tanggal aktivasi"}</span>
+                  <CalendarDays size={19} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="activation-calendar-popover w-auto p-0" align="start">
+                <Calendar
+                  className="activation-calendar"
+                  mode="single"
+                  disabled={{ before: new Date(`${serverNow.date}T00:00:00`) }}
+                  selected={pendingDate ? new Date(pendingDate + "T00:00:00") : undefined}
+                  onSelect={(date) => {
+                    if (!date) return;
+                    const value = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+                    setPendingDate(value);
+                    if (!isSlotOpen(pendingSlot, value, serverNow)) setPendingSlot(slots.find((slot) => isSlotOpen(slot, value, serverNow)) ?? slots[0]);
+                    setPendingCalendarOpen(false);
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
           </label>
           <label className="reschedule-field">
             <span>Usulan Time</span>
@@ -1897,6 +2186,15 @@ function CompletedList({
   onDeleteAll: () => void;
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [completedPage, setCompletedPage] = useState(1);
+  const [prevCompletedDate, setPrevCompletedDate] = useState(selectedDate);
+  if (prevCompletedDate !== selectedDate) {
+    setPrevCompletedDate(selectedDate);
+    setCompletedPage(1);
+  }
+  const completedMaxPage = Math.max(1, Math.ceil(requests.length / PAGE_SIZE));
+  if (completedPage > completedMaxPage) setCompletedPage(completedMaxPage);
+  const completedInfo = paginate(requests, completedPage);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -1961,7 +2259,7 @@ function CompletedList({
               </tr>
             </thead>
             <tbody>
-              {requests.map((item) => (
+              {completedInfo.items.map((item) => (
                 <tr key={item.id}>
                   <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId} · WO {item.woNumber}</span></td>
                   <td data-label="Waktu Selesai"><b className="capitalize">{formatActivationDate(getCompletedDate(item))}</b><span>{formatCompletedTime(item.completedAt)}</span></td>
@@ -1986,6 +2284,12 @@ function CompletedList({
         {!requests.length && (
           <div className="empty-state"><span><CheckCircle2 size={24} /></span><b>Belum ada pekerjaan selesai</b><p>Pilih tanggal lain untuk melihat riwayat completed.</p></div>
         )}
+        <PaginationBar
+          page={completedInfo.page}
+          totalPages={completedInfo.totalPages}
+          totalItems={requests.length}
+          onPageChange={setCompletedPage}
+        />
       </div>
     </div>
   );
@@ -2008,6 +2312,7 @@ function PendingList({
 }) {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [pendingPage, setPendingPage] = useState(1);
   useEffect(() => {
     const timeout = window.setTimeout(() => setSearchQuery(searchInput.trim().toLowerCase()), 300);
     return () => window.clearTimeout(timeout);
@@ -2017,6 +2322,14 @@ function PendingList({
       .toLowerCase()
       .includes(searchQuery)
   )), [requests, searchQuery]);
+  const [prevPendingSearch, setPrevPendingSearch] = useState(searchQuery);
+  if (prevPendingSearch !== searchQuery) {
+    setPrevPendingSearch(searchQuery);
+    setPendingPage(1);
+  }
+  const pendingMaxPage = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
+  if (pendingPage > pendingMaxPage) setPendingPage(pendingMaxPage);
+  const pendingInfo = paginate(filteredRequests, pendingPage);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -2053,7 +2366,7 @@ function PendingList({
               </tr>
             </thead>
             <tbody>
-              {filteredRequests.map((item) => (
+              {pendingInfo.items.map((item) => (
                 <tr key={item.id}>
                   <td data-label="Customer">
                     <button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button>
@@ -2094,6 +2407,12 @@ function PendingList({
             <p>{requests.length ? "Coba gunakan kata kunci lain." : "Semua request sudah memiliki jadwal tindak lanjut."}</p>
           </div>
         )}
+        <PaginationBar
+          page={pendingInfo.page}
+          totalPages={pendingInfo.totalPages}
+          totalItems={filteredRequests.length}
+          onPageChange={setPendingPage}
+        />
       </div>
     </div>
   );
@@ -2114,6 +2433,10 @@ function UrgentApprovalList({
   busy: boolean;
   canApprove?: boolean;
 }) {
+  const [urgentPage, setUrgentPage] = useState(1);
+  const urgentMaxPage = Math.max(1, Math.ceil(requests.length / PAGE_SIZE));
+  if (urgentPage > urgentMaxPage) setUrgentPage(urgentMaxPage);
+  const urgentInfo = paginate(requests, urgentPage);
   return (
     <div>
       <div className="page-heading mb-7">
@@ -2132,7 +2455,7 @@ function UrgentApprovalList({
           <table className="pending-table">
             <thead><tr><th scope="col">Kode Approval</th><th scope="col">Customer</th><th scope="col">Jadwal Diajukan</th><th scope="col">PIC Provisioning</th><th scope="col">Tindakan</th></tr></thead>
             <tbody>
-              {requests.map((item) => (
+              {urgentInfo.items.map((item) => (
                 <tr key={item.id}>
                   <td data-label="Kode Approval"><b className="approval-code">{item.approvalCode}</b></td>
                   <td data-label="Customer"><button type="button" className="customer-detail-button" aria-label={`Lihat detail ${item.customerName || item.siteId}`} onClick={(event) => { event.stopPropagation(); onOpen(item); }}>{item.customerName || item.siteId}</button><span>{item.siteId} · {item.subsId}</span></td>
@@ -2156,6 +2479,12 @@ function UrgentApprovalList({
         {!requests.length && (
           <div className="empty-state"><span><CheckCircle2 size={24} /></span><b>Tidak ada approval tertunda</b><p>Request urgent yang baru dibuat akan tampil di sini.</p></div>
         )}
+        <PaginationBar
+          page={urgentInfo.page}
+          totalPages={urgentInfo.totalPages}
+          totalItems={requests.length}
+          onPageChange={setUrgentPage}
+        />
       </div>
     </div>
   );
