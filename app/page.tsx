@@ -719,6 +719,7 @@ export default function Home() {
   const [pendingSlot, setPendingSlot] = useState(slots[0]);
   const [pendingReason, setPendingReason] = useState("");
   const [requestTypeDialog, setRequestTypeDialog] = useState(false);
+  const [submittedRequest, setSubmittedRequest] = useState<ActivationRequest | null>(null);
   const [completedDateFilter, setCompletedDateFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -824,6 +825,7 @@ export default function Home() {
     const wasEditing = Boolean(editingId);
     setEditingId(null);
     setView("dashboard");
+    if (!wasEditing) setSubmittedRequest(data.request);
     setMessage(
       data.request.timeSlot !== payload.timeSlot
         ? `Request tersimpan di ${data.request.timeSlot} karena slot sebelumnya penuh.`
@@ -1960,6 +1962,49 @@ export default function Home() {
               <ChevronRight size={19} />
             </button>
           </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(submittedRequest)} onOpenChange={(open) => !open && setSubmittedRequest(null)}>
+        <DialogContent className="submit-success-dialog">
+          <div className="submit-success-card">
+            <span className="submit-success-icon"><CheckCircle2 size={44} strokeWidth={2.2} /></span>
+            <h2>
+              Request {submittedRequest?.requestType === "Urgent" ? "Urgent" : "Aktivasi"} Berhasil Disubmit
+            </h2>
+            <p>
+              {submittedRequest?.requestType === "Urgent"
+                ? `Menunggu approval Superuser.`
+                : `Request tercatat dan menunggu jadwal aktivasi.`}
+            </p>
+          </div>
+          {submittedRequest && (
+            <div className="submit-success-summary">
+              <DetailItem label="Kode Approval" value={submittedRequest.approvalCode || "-"} wide />
+              <DetailItem label="Customer" value={submittedRequest.customerName || "-"} wide />
+              <DetailItem label="Site ID" value={submittedRequest.siteId || "-"} />
+              <DetailItem label="Subs ID" value={submittedRequest.subsId || "-"} />
+              <DetailItem label="Service Type" value={submittedRequest.serviceType || "-"} />
+              <DetailItem label="Access Media" value={submittedRequest.accessMedia || "-"} />
+              <DetailItem label="Hari & Tanggal" value={formatActivationDate(submittedRequest.activationDate)} />
+              <DetailItem label="Time Slot" value={submittedRequest.timeSlot || "-"} />
+              <DetailItem label="Area" value={submittedRequest.area || "-"} />
+              <DetailItem label="Vendor" value={submittedRequest.vendorName || "-"} />
+              <DetailItem label="PIC Provisioning" value={submittedRequest.provisioningPic || "-"} />
+              <DetailItem label="Status" value={submittedRequest.status || "-"} />
+              {submittedRequest.approvalStatus && (
+                <DetailItem label="Status Approval" value={submittedRequest.approvalStatus} wide />
+              )}
+            </div>
+          )}
+          <DialogFooter className="submit-success-footer">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => setSubmittedRequest(null)}
+            >
+              Selesai
+            </button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>

@@ -89,6 +89,16 @@ button:not(:disabled):active { transform: scale(.96); }
 .request-type-option.regular:hover { border-color:rgba(85,200,255,.32); }
 .request-type-option.urgent:hover { border-color:rgba(251,113,133,.36); }
 .request-type-option:disabled { cursor:not-allowed; opacity:.42; transform:none!important; }
+.submit-success-dialog { max-width:540px!important; border:1px solid rgba(255,255,255,.12)!important; background:#0a1c2c!important; color:#e8f1f8!important; }
+.submit-success-card { display:flex; flex-direction:column; align-items:center; gap:6px; padding:30px 28px 18px; text-align:center; }
+.submit-success-icon { display:grid; width:76px; height:76px; place-items:center; border-radius:999px; background:rgba(52,211,153,.12); color:#34d399; box-shadow:0 0 0 6px rgba(52,211,153,.08),0 8px 30px rgba(52,211,153,.18); }
+.submit-success-card h2 { margin:8px 0 2px; color:#fff; font-size:19px; text-align:center; }
+.submit-success-card p { margin:0; color:#7f94a7; font-size:13px; }
+.submit-success-summary { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:0 22px 18px; }
+.submit-success-summary .detail-item { padding:10px 12px; }
+.submit-success-summary .detail-item b { font-size:12.5px; }
+.submit-success-footer { padding:0 22px 24px; }
+.submit-success-footer .primary-button { width:100%; justify-content:center; }
 .deadline-note { border:1px solid rgba(255,255,255,.08); border-radius:18px; padding:16px; background:linear-gradient(145deg,rgba(20,39,57,.88),rgba(10,25,39,.88)); }
 .deadline-note.cutoff-active { border-color:rgba(244,63,94,.28); background:linear-gradient(145deg,rgba(40,18,28,.9),rgba(24,11,18,.9)); }
 .deadline-note b { color:#edf5fb; font-size:13px; }
@@ -458,10 +468,12 @@ td select { max-width: 190px; min-height: 36px; font-size: 12px; }
   .page-heading > div { width:100%; }
   .page-heading h1 { font-size:1.75rem; line-height:1.2; }
   .page-heading .primary-button { width:100%; }
-  .panel-toolbar { align-items:stretch; }
+  .panel-toolbar { align-items:stretch; flex-wrap:wrap; }
   .panel-toolbar > div { width:100%; }
   .panel-toolbar .search-box { width:100%; min-width:0; }
   .panel-toolbar > select { width:100%; }
+  .panel-toolbar > button { width:100%; }
+  .panel-toolbar .active-filter { width:auto; }
   .completed-date-filter { width:100%; align-items:stretch; flex-direction:column; }
   .completed-date-filter input { width:100%; }
   .data-panel { overflow:visible; border:0; background:transparent; box-shadow:none; }
@@ -704,7 +716,7 @@ td > span:not(.media-badge) { color:#64748b; }
 .approve-button { border-color:#bbf7d0; background:#f0fdf4; color:#15803d; }
 .bulk-delete-button { border-color:#fecdd3; background:#fff1f2; color:#be123c; }
 
-.request-type-dialog,.email-choice-dialog,.delete-dialog,.reschedule-dialog {
+.request-type-dialog,.email-choice-dialog,.delete-dialog,.reschedule-dialog,.submit-success-dialog {
   border-color:#e2e8f0!important;
   background:#fff!important;
   color:#172033!important;
@@ -718,6 +730,10 @@ td > span:not(.media-badge) { color:#64748b; }
 .request-type-option:hover,.email-choice-options > button:hover { transform:none; border-color:#93c5fd; background:#f8fbff; }
 .request-type-option.regular > span,.email-choice-options > button > span { background:#eff6ff; color:#2563eb; }
 .request-type-option.urgent > span { background:#fff1f2; color:#e11d48; }
+
+.submit-success-card h2 { color:#0f172a; }
+.submit-success-card p { color:#64748b; }
+.submit-success-icon { background:rgba(22,163,74,.12); color:#16a34a; box-shadow:0 0 0 6px rgba(22,163,74,.08),0 8px 30px rgba(22,163,74,.18); }
 
 .detail-sheet { border-left-color:#e2e8f0!important; background:#fff!important; color:#172033!important; box-shadow:-20px 0 60px rgba(15,23,42,.14)!important; }
 .detail-header { border-bottom-color:#e2e8f0; background:#f8fafc; }
@@ -991,13 +1007,16 @@ td > span:not(.media-badge) { color:#7f8c9e; }
 .reschedule-button { border-color:#4c4072; background:#1b1730; color:#c3b2f1; }
 .approve-button { border-color:#275840; background:#0d2119; color:#78d9aa; }
 .bulk-delete-button { border-color:#65313a; background:#271419; color:#f1a0ad; }
-.request-type-dialog,.email-choice-dialog,.delete-dialog,.reschedule-dialog {
+.request-type-dialog,.email-choice-dialog,.delete-dialog,.reschedule-dialog,.submit-success-dialog {
   border-color:#293340!important;
   background:#0d1117!important;
   color:#e7edf5!important;
   box-shadow:0 24px 70px rgba(0,0,0,.55)!important;
 }
 .request-type-dialog [data-slot="dialog-title"],.email-choice-dialog [data-slot="dialog-title"],.delete-dialog [data-slot="alert-dialog-title"],.reschedule-dialog [data-slot="dialog-title"] { color:#f8fafc!important; }
+.submit-success-card h2 { color:#f8fafc; }
+.submit-success-card p { color:#8794a5; }
+.submit-success-icon { background:rgba(52,211,153,.12); color:#34d399; box-shadow:0 0 0 6px rgba(52,211,153,.08),0 8px 30px rgba(52,211,153,.18); }
 .request-type-dialog [data-slot="dialog-description"],.email-choice-dialog [data-slot="dialog-description"],.delete-dialog [data-slot="alert-dialog-description"],.reschedule-dialog [data-slot="dialog-description"] { color:#8794a5!important; }
 .request-type-option,.email-choice-options > button { border-color:#293340; background:#111720; color:#dbe5ef; }
 .request-type-option b,.email-choice-options b { color:#eef4fa; }
