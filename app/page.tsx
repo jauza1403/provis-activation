@@ -5,7 +5,7 @@ import { exportWithScheduleTemplate } from "@/lib/schedule-template-export";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -1335,7 +1335,7 @@ export default function Home() {
                     <p>Mulai dari pekerjaan yang berisiko menghambat aktivasi.</p>
                   </div>
                   <span className="attention-total">
-                    {attentionItems.reduce((total, item) => total + item.count, 0)} item
+                    {attentionItems.filter((item) => item.count > 0).length} antrean aktif
                   </span>
                 </div>
                 <div className="attention-grid">
@@ -1356,6 +1356,7 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
+                <p className="attention-footnote">Pilih kartu untuk membuka antrean yang sama dengan menu Follow-up di samping.</p>
               </section>
               <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <Metric
@@ -2367,7 +2368,16 @@ function RequestForm({
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [screenshotUploading, setScreenshotUploading] = useState(false);
   const [screenshotError, setScreenshotError] = useState("");
+  const [step, setStep] = useState(1);
+  const formRef = useRef<HTMLFormElement>(null);
   const MAX_SCREENSHOT_BYTES = 20 * 1024 * 1024;
+  const steps = [
+    { number: 1, label: "Jadwal" },
+    { number: 2, label: "Customer" },
+    { number: 3, label: "PIC & area" },
+    { number: 4, label: "Network / RFA" },
+    ...(urgent ? [{ number: 5, label: "Bukti urgent" }] : []),
+  ];
   async function uploadScreenshot(file: File) {
     setScreenshotError("");
     if (!file.type.startsWith("image/")) {
@@ -2396,6 +2406,15 @@ function RequestForm({
   const counts = Object.fromEntries(slots.map((slot) => [slot, slotCounts[`${form.activationDate}|${slot}`] ?? 0]));
   const effectiveSlot = form.activationDate ? candidateSlots(form.timeSlot).find((slot) => counts[slot] < SLOT_CAPACITY && isSlotOpen(slot, form.activationDate, serverNow)) ?? "" : form.timeSlot;
   const scheduleFull = Boolean(form.activationDate) && !effectiveSlot;
+  function goToNextStep() {
+    if (!formRef.current?.reportValidity()) return;
+    setStep((current) => Math.min(current + 1, steps.length));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function goToPreviousStep() {
+    setStep((current) => Math.max(current - 1, 1));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   useEffect(() => {
     if (effectiveSlot && effectiveSlot !== form.timeSlot) setForm((current) => ({ ...current, timeSlot: effectiveSlot }));
     const currentPicCount = picCounts[form.provisioningPic] ?? 0;
@@ -2435,7 +2454,30 @@ function RequestForm({
           </div>
         </div>
       </div>
+      <div className="data-master-note" role="note">
+        <span><ClipboardList size={18} aria-hidden="true" /></span>
+        <div>
+          <b>Sinkron ke Spreadsheet Schedule Activation</b>
+          <p>Field bertanda wajib akan dikirim ke kolom Spreadsheet Schedule Activation. Gunakan format dan istilah yang sama agar data tidak berubah saat sinkronisasi.</p>
+        </div>
+      </div>
+      <nav className="form-stepper" aria-label="Progress pengisian request">
+        {steps.map((item) => (
+          <button
+            key={item.number}
+            type="button"
+            className={step === item.number ? "active" : step > item.number ? "complete" : ""}
+            onClick={() => item.number < step && setStep(item.number)}
+            disabled={item.number > step}
+            aria-current={step === item.number ? "step" : undefined}
+          >
+            <span>{item.number}</span>
+            <b>{item.label}</b>
+          </button>
+        ))}
+      </nav>
       <form
+        ref={formRef}
         className="space-y-5"
         onSubmit={(event) => {
           event.preventDefault();
@@ -2446,7 +2488,7 @@ function RequestForm({
           onSubmit();
         }}
       >
-        <FormSection number="01" title="Jadwal Aktivasi" description="Pilih tanggal dan slot yang masih tersedia untuk pekerjaan ini." icon={<CalendarDays size={18} />}>
+        {step === 1 && <FormSection number="01" title="Jadwal Aktivasi" description="Pilih tanggal dan slot yang masih tersedia untuk pekerjaan ini." icon={<CalendarDays size={18} />}>
           <div className="form-grid">
             <Field label="Email">
               <input required type="email" placeholder="nama@perusahaan.com" {...input("email")} />
@@ -2483,8 +2525,8 @@ function RequestForm({
             <p className="wide date-preview" role="status">{scheduleFull ? "Slot penuh. Pilih slot sebelumnya yang tersedia atau tanggal lain." : "Maksimal 10 request per slot. Slot penuh otomatis dialihkan ke slot berikutnya."}</p>
             <Field label="Catatan Tambahan" wide><textarea rows={3} placeholder="Kebutuhan akses, kendala lokasi, atau informasi tambahan" {...input("notes")} /></Field>
           </div>
-        </FormSection>
-        <FormSection number="02" title="Data Customer" description="Gunakan nama, ID, produk, dan bandwidth yang sama dengan data master." icon={<Building2 size={18} />}>
+        </FormSection>}
+        {step === 2 && <FormSection number="02" title="Data Customer" description="Gunakan nama, ID, produk, dan bandwidth yang sama dengan data master." icon={<Building2 size={18} />}>
           <div className="form-grid">
             <Field label="Nama Customer" wide>
               <input
@@ -2540,8 +2582,8 @@ function RequestForm({
               <input required placeholder="Link atau keterangan bukti koordinasi" {...input("coordinationProof")} />
             </Field>
           </div>
-        </FormSection>
-        <FormSection number="03" title="Area & Penanggung Jawab" description="Tentukan area layanan, vendor, dan PIC yang menerima pekerjaan." icon={<ShieldCheck size={18} />}>
+        </FormSection>}
+        {step === 3 && <FormSection number="03" title="Area & Penanggung Jawab" description="Tentukan area layanan, vendor, dan PIC yang menerima pekerjaan." icon={<ShieldCheck size={18} />}>
           <div className="form-grid">
             <Field label="Area">
               <input
@@ -2598,8 +2640,8 @@ function RequestForm({
               </select>
             </Field>
           </div>
-        </FormSection>
-        <FormSection number="04" title="Perangkat & RFA" description="Lengkapi perangkat dan detail jaringan. Beberapa field menyesuaikan akses media." icon={<RadioTower size={18} />}>
+        </FormSection>}
+        {step === 4 && <FormSection number="04" title="Perangkat & RFA" description="Lengkapi perangkat dan detail jaringan. Beberapa field menyesuaikan akses media." icon={<RadioTower size={18} />}>
           <div className="form-grid">
             <Field label="Perangkat yang Dipasang" wide>
               <textarea
@@ -2755,8 +2797,8 @@ function RequestForm({
               </div>
             )}
           </div>
-        </FormSection>
-        {urgent && (
+        </FormSection>}
+        {urgent && step === 5 && (
           <FormSection number="05" title="Screenshot Bukti" description="Lampirkan bukti yang menjelaskan kebutuhan urgent." icon={<ClipboardList size={18} />}>
             <div className="form-grid">
               <Field label="Screenshot Bukti Urgent" wide>
@@ -2778,27 +2820,41 @@ function RequestForm({
             </div>
           </FormSection>
         )}
-        <div className="flex flex-wrap justify-end gap-3">
-          {editing && (
+        <div className="form-actions flex flex-wrap justify-between gap-3">
+          <div className="flex gap-3">
+            {step > 1 && (
+              <button disabled={busy} className="secondary-button" type="button" onClick={goToPreviousStep}>
+                Kembali
+              </button>
+            )}
+            {editing && step === 1 && (
             <button disabled={busy} className="secondary-button" type="button" onClick={onCancel}>
               Batal
             </button>
-          )}
-          <button
-            disabled={busy || !form.activationDate || scheduleFull}
-            className="primary-button min-w-48"
-            type="submit"
-          >
-            {busy ? (
-              editing ? "Menyimpan…" : "Mengirim…"
-            ) : (
-              <>
-                <Send size={18} />
-                {editing ? "Simpan perubahan" : urgent ? "Kirim request urgent" : "Kirim request"}
-                <ChevronRight size={17} />
-              </>
             )}
-          </button>
+          </div>
+          {step < steps.length ? (
+            <button disabled={busy || (step === 1 && (!form.activationDate || scheduleFull))} className="primary-button min-w-48" type="button" onClick={goToNextStep}>
+              Lanjut ke {steps[step]?.label ?? "berikutnya"}
+              <ChevronRight size={17} />
+            </button>
+          ) : (
+            <button
+              disabled={busy || !form.activationDate || scheduleFull}
+              className="primary-button min-w-48"
+              type="submit"
+            >
+              {busy ? (
+                editing ? "Menyimpan…" : "Mengirim…"
+              ) : (
+                <>
+                  <Send size={18} />
+                  {editing ? "Simpan perubahan" : urgent ? "Kirim request urgent" : "Kirim request"}
+                  <ChevronRight size={17} />
+                </>
+              )}
+            </button>
+          )}
         </div>
       </form>
     </div>
@@ -2863,7 +2919,7 @@ function BandwidthField({
           required={required}
           type="text"
           inputMode="decimal"
-          pattern="^\\d+(?:[.,]\\d+)?$"
+          pattern="^\d+(?:[.,]\d+)?$"
           title="Masukkan angka bandwidth, misalnya 1 atau 0,5"
           value={parsed.amount}
           onChange={(event) => update(event.target.value, parsed.unit)}
